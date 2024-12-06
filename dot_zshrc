@@ -122,7 +122,7 @@ export NVM_DIR="$HOME/.nvm"
 
 ## arc
 
-alias cdf="cd ~/arcadia/adv/frontend/services/uac"
+alias cdf="cd ~/arcadia/adv/frontend"
 alias cdb="cd ~/arcadia/direct"
 alias cdp="cd ~/arcadia/direct/perl"
 alias cdu="cd ~/arcadia/adv/frontend/services/uac"
