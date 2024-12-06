@@ -99,6 +99,8 @@ else
   export EDITOR='vim'
 fi
 
+test -f ~/arcadia/junk/dubiner/shared.profile && source ~/arcadia/junk/dubiner/shared.profile
+
 # Compilation flags
 # export ARCHFLAGS="-arch $(uname -m)"
 
