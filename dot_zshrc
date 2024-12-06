@@ -100,7 +100,6 @@ else
 fi
 
 test -f ~/arcadia/junk/dubiner/shared.profile && source ~/arcadia/junk/dubiner/shared.profile
-test -f ~/.bucket_credentials && source ~/.bucket_credentials
 
 # Compilation flags
 # export ARCHFLAGS="-arch $(uname -m)"
