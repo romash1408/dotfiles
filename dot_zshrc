@@ -99,8 +99,6 @@ else
   export EDITOR='vim'
 fi
 
-test -f ~/arcadia/junk/dubiner/shared.profile && source ~/arcadia/junk/dubiner/shared.profile
-
 # Compilation flags
 # export ARCHFLAGS="-arch $(uname -m)"
 
@@ -119,3 +117,16 @@ test -f ~/arcadia/junk/dubiner/shared.profile && source ~/arcadia/junk/dubiner/s
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# Yandex
+
+## arc
+
+alias cdf="cd ~/arcadia/adv/frontend/services/uac"
+alias cdb="cd ~/arcadia/direct"
+alias cdp="cd ~/arcadia/direct/perl"
+alias cdu="cd ~/arcadia/adv/frontend/services/uac"
+alias cdd="cd ~/arcadia/adv/frontend/services/dna"
+alias cdm="cd ~/arcadia/adv/frontend/packages/direct-modules"
+alias atu="arc branch -f trunk arcadia/trunk && arc pull trunk && arc checkout trunk"
+alias abu="arc branch -f bc arcadia/app/direct-build-cache/mac-arm64-debug && arc pull bc && arc checkout bc"
