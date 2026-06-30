@@ -65,16 +65,48 @@ else
     armv7*)        REMOTE_ARCH=arm ;;
   esac
 
-  step "Downloading chezmoi ${LOCAL_VER} for ${REMOTE_OS}/${REMOTE_ARCH}..."
-  TMPBIN=$(mktemp)
-  curl -fsSL \
-    "https://github.com/twpayne/chezmoi/releases/download/v${LOCAL_VER}/chezmoi_${LOCAL_VER}_${REMOTE_OS}_${REMOTE_ARCH}.tar.gz" \
-    | tar -xzO chezmoi > "$TMPBIN"
+  # Try a chezmoi version: download from GitHub (local machine has internet),
+  # scp to remote, test. Returns 0 if the binary actually runs on the remote.
+  try_chezmoi_ver() {
+    local ver=$1 tmp
+    tmp=$(mktemp)
+    curl -fsSL \
+      "https://github.com/twpayne/chezmoi/releases/download/v${ver}/chezmoi_${ver}_${REMOTE_OS}_${REMOTE_ARCH}.tar.gz" \
+      | tar -xzO chezmoi > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    rsh "mkdir -p ~/.local/bin"
+    scp -q "$tmp" "$ALIAS:.local/bin/chezmoi"
+    rsh "chmod +x ~/.local/bin/chezmoi"
+    rm -f "$tmp"
+    rsh "chezmoi --version >/dev/null 2>&1"
+  }
+
   rsh "mkdir -p ~/.local/bin"
-  scp -q "$TMPBIN" "$ALIAS:.local/bin/chezmoi"
-  rsh "chmod +x ~/.local/bin/chezmoi"
-  rm -f "$TMPBIN"
-  ok "installed chezmoi ${LOCAL_VER}"
+  ok "trying chezmoi ${LOCAL_VER}..."
+  if try_chezmoi_ver "$LOCAL_VER"; then
+    ok "installed chezmoi ${LOCAL_VER}"
+  else
+    # Newer chezmoi builds link against glibc versions absent on older distros.
+    # Fall back: iterate recent releases from GitHub until one runs on the remote.
+    warn "chezmoi ${LOCAL_VER} incompatible (glibc too old?), scanning older releases..."
+    INSTALLED=""
+    while IFS= read -r ver; do
+      [ "$ver" = "$LOCAL_VER" ] && continue
+      ok "trying ${ver}..."
+      if try_chezmoi_ver "$ver"; then
+        INSTALLED="$ver"
+        break
+      fi
+    done <<EOF
+$(curl -fsSL "https://api.github.com/repos/twpayne/chezmoi/releases?per_page=30" \
+  | grep '"tag_name"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+EOF
+    if [ -n "$INSTALLED" ]; then
+      ok "installed chezmoi ${INSTALLED} (compatible with remote glibc)"
+    else
+      printf '\n\033[1;31mERROR\033[0m: no compatible chezmoi found for %s — install manually\n' "$ALIAS" >&2
+      exit 1
+    fi
+  fi
 fi
 
 # ── 2-3. bare repos: init on remote + push ────────────────────────────────────
