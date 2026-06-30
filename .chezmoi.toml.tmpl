@@ -2,6 +2,8 @@
 {{- $work := promptBoolOnce . "work" "Is this a work machine?" -}}
 {{- $hasGUI := promptBoolOnce . "hasGUI" "Does this machine have a GUI" -}}
 
+encryption = "age"
+
 [data]
   offline = {{ $offline }}
   work = {{ $work }}
@@ -20,8 +22,6 @@
   local  = "zsh-custom/plugins/zsh-autosuggestions"
   bare   = "zsh-autosuggestions"
   remote = "zsh-custom/plugins/zsh-autosuggestions"
-
-encryption = "age"
 
 [age]
   identity = "{{ .chezmoi.homeDir }}/.config/chezmoi/key.txt"
