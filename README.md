@@ -25,6 +25,40 @@ chsh -s "$zsh_path"
 
 Re-login or open a new terminal. Done.
 
+## Age encryption key
+
+Secrets (tokens, SSH keys) are stored in the repo encrypted with [age](https://age-encryption.org).
+chezmoi decrypts them automatically at apply time using `~/.config/chezmoi/key.txt`.
+
+**The key is NOT in the repo** — you must place it on each machine manually before running `chezmoi init`.
+
+### Getting the key
+
+The key is backed up in Bitwarden as **"chezmoi-age-key"**:
+
+```sh
+rbw get "chezmoi-age-key"
+```
+
+### Placing the key
+
+```sh
+mkdir -p ~/.config/chezmoi
+# paste the AGE-SECRET-KEY-1... line from Bitwarden:
+rbw get "chezmoi-age-key" > ~/.config/chezmoi/key.txt
+chmod 600 ~/.config/chezmoi/key.txt
+```
+
+On machines without `rbw`, copy the key manually (e.g. over SSH or from a password manager):
+
+```sh
+# from another machine:
+scp ~/.config/chezmoi/key.txt new-host:.config/chezmoi/key.txt
+ssh new-host "chmod 600 ~/.config/chezmoi/key.txt"
+```
+
+`./chezmoi-upload-offline.sh` copies the key to offline machines automatically.
+
 > **`offline` is auto-detected** from the hostname suffix `.yp-c.yandex.net` —
 > no need to pass it manually. On offline machines `chezmoi init` will fail
 > (no internet); use the offline flow below instead.
@@ -35,7 +69,7 @@ Run this **from your macOS work laptop** — it handles everything over SSH:
 
 ```sh
 # First time — bootstraps chezmoi + clones all repos on the remote:
-chezmoi-upload-offline.sh <ssh-alias> work=true hasGUI=false
+./chezmoi-upload-offline.sh <ssh-alias> work=true hasGUI=false
 
 # Then on the remote machine, set zsh as default:
 ssh <ssh-alias> "sudo apt install zsh -y && chsh -s \$(which zsh)"
@@ -73,7 +107,7 @@ auto-commits and pushes to GitHub. Offline VMs are updated on the next
 ## Adding a new offline machine
 
 ```sh
-chezmoi-upload-offline.sh new-host work=true hasGUI=false
+./chezmoi-upload-offline.sh new-host work=true hasGUI=false
 ```
 
 A git remote named `new-host` is added to all managed repos. Future
@@ -90,7 +124,7 @@ Add one stanza to `.chezmoi.toml.tmpl`:
   remote = "path/relative/to/HOME"   # working dir on remote (often same as local)
 ```
 
-`chezmoi-upload-offline.sh` and `run_push` pick it up automatically.
+`./chezmoi-upload-offline.sh` and `run_push` pick it up automatically.
 
 ## Machine config (`promptBoolOnce`)
 
