@@ -22,8 +22,14 @@ pull_or_clone() {
     echo "  cloned  $dest"
   fi
   chmod go-rwx "$dest"
-  # oh-my-zsh refuses to load completions from group-writable dirs
+  # oh-my-zsh refuses to load completions from group-writable dirs — fix
+  # both the repo itself and any intermediate dirs created by mkdir -p above
   find "$dest" -type d -exec chmod go-w {} \;
+  parent="$(dirname "$dest")"
+  while [ "$parent" != "$HOME" ] && [ "$parent" != "/" ]; do
+    chmod go-w "$parent"
+    parent="$(dirname "$parent")"
+  done
 }
 
 echo "==> Pulling offline repos..."
