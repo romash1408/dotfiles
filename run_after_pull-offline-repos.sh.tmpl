@@ -22,6 +22,8 @@ pull_or_clone() {
     echo "  cloned  $dest"
   fi
   chmod go-rwx "$dest"
+  # oh-my-zsh refuses to load completions from group-writable dirs
+  find "$dest" -type d -exec chmod go-w {} \;
 }
 
 echo "==> Pulling offline repos..."
