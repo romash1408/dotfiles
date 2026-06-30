@@ -14,14 +14,12 @@ encryption = "age"
 # stored at ~/bare_name.git on remote), remote (working dir relative to HOME on remote).
 # Dotfiles are handled separately (always bare=dotfiles, via chezmoi init/update).
 [[data.offline_repos]]
-  local  = ".oh-my-zsh"
-  bare   = "oh-my-zsh"
-  remote = ".oh-my-zsh"
+  path = ".oh-my-zsh"
+  bare = "oh-my-zsh"
 
 [[data.offline_repos]]
-  local  = "zsh-custom/plugins/zsh-autosuggestions"
-  bare   = "zsh-autosuggestions"
-  remote = "zsh-custom/plugins/zsh-autosuggestions"
+  path = "zsh-custom/plugins/zsh-autosuggestions"
+  bare = "zsh-autosuggestions"
 
 [age]
   identity = "{{ .chezmoi.homeDir }}/.config/chezmoi/key.txt"

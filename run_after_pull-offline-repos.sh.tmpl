@@ -26,7 +26,7 @@ pull_or_clone() {
 
 echo "==> Pulling offline repos..."
 {{ range .offline_repos -}}
-pull_or_clone "{{ .bare }}" "{{ .remote }}"
+pull_or_clone "{{ .bare }}" "{{ .path }}"
 {{ end -}}
 echo "==> Done."
 {{- end -}}

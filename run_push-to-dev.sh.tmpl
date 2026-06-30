@@ -15,7 +15,7 @@ push_all() {
 echo "==> Pushing to offline remotes..."
 push_all ~/.local/share/chezmoi
 {{ range .offline_repos -}}
-push_all ~/{{ .local }}
+push_all ~/{{ .path }}
 {{ end -}}
 echo "==> Done."
 {{ end -}}

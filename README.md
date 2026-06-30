@@ -119,9 +119,8 @@ Add one stanza to `.chezmoi.toml.tmpl`:
 
 ```toml
 [[data.offline_repos]]
-  local  = "path/relative/to/HOME"   # where the repo lives on macOS
-  bare   = "repo-name"               # bare repo name: ~/repo-name.git on remote
-  remote = "path/relative/to/HOME"   # working dir on remote (often same as local)
+  path = "path/relative/to/HOME"   # repo location (same on all machines)
+  bare = "repo-name"               # bare repo name: ~/repo-name.git on remote
 ```
 
 `./chezmoi-upload-offline.sh` and `run_push` pick it up automatically.

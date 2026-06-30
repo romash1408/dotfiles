@@ -26,10 +26,10 @@ shift
 # ── template-rendered values ──────────────────────────────────────────────────
 DOTFILES_LOCAL="{{ .chezmoi.sourceDir }}"
 
-# Array of "local_rel_to_HOME:bare_name:remote_rel_to_HOME"
+# Array of "path_rel_to_HOME:bare_name"
 REPOS=(
 {{ range .offline_repos -}}
-  "{{ .local }}:{{ .bare }}:{{ .remote }}"
+  "{{ .path }}:{{ .bare }}"
 {{ end -}}
 )
 
@@ -121,8 +121,8 @@ push_repo() {
 
 push_repo "$DOTFILES_LOCAL" "dotfiles"
 for spec in "${REPOS[@]}"; do
-  IFS=':' read -r rel_local bare _rel_remote <<< "$spec"
-  push_repo "$HOME/$rel_local" "$bare"
+  IFS=':' read -r path bare <<< "$spec"
+  push_repo "$HOME/$path" "$bare"
 done
 
 # ── 3b. age key — copy if not present ────────────────────────────────────────
