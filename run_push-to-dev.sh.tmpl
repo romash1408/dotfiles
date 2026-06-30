@@ -1,0 +1,21 @@
+{{- if and .work (eq .chezmoi.os "darwin") -}}
+#!/bin/sh
+# Pushes dotfiles + all offline-repo dependencies to every non-origin remote.
+# Remotes are added by chezmoi-upload-offline.sh when setting up a new machine.
+set -e
+
+push_all() {
+  repo=$1
+  for remote in $(git -C "$repo" remote | grep -v '^origin$'); do
+    printf '  %-28s → %s\n' "$(basename "$repo")" "$remote"
+    git -C "$repo" push "$remote" HEAD --quiet || printf '    WARN: push failed (non-fatal)\n'
+  done
+}
+
+echo "==> Pushing to offline remotes..."
+push_all ~/.local/share/chezmoi
+{{ range .offline_repos -}}
+push_all ~/{{ .local }}
+{{ end -}}
+echo "==> Done."
+{{ end -}}

@@ -1,0 +1,7 @@
+{{ if ne .chezmoi.os "darwin" }}
+.docker/contexts/meta/2d89b732b01a00a2d1675ed3cee9fd0f965daadf90603c989dd3afd4569c6896
+{{ end }}
+
+{{ if not .work}}
+.docker/contexts/meta/ef260e9aa3c673af240d17a2660480361a8e081d1ffeca2a5ed0e3219fc18567/meta.json
+{{ end }}

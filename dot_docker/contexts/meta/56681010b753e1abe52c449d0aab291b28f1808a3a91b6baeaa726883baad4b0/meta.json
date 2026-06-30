@@ -1,0 +1,1 @@
+{"Name":"cloud","Metadata":{},"Endpoints":{"docker":{"Host":"ssh://cloud","SkipTLSVerify":false}}}

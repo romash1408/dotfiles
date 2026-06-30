@@ -1,0 +1,32 @@
+{{- $offline := hasSuffix "yp-c.yandex.net" .chezmoi.fqdnHostname -}}
+{{- $work := promptBoolOnce . "work" "Is this a work machine?" -}}
+{{- $hasGUI := promptBoolOnce . "hasGUI" "Does this machine have a GUI" -}}
+
+[data]
+  offline = {{ $offline }}
+  work = {{ $work }}
+  hasGUI = {{ $hasGUI }}
+
+# Repos synced to offline machines via chezmoi-upload-offline.sh.
+# Each entry: local (path relative to HOME on macOS), bare (name of bare repo,
+# stored at ~/bare_name.git on remote), remote (working dir relative to HOME on remote).
+# Dotfiles are handled separately (always bare=dotfiles, via chezmoi init/update).
+[[data.offline_repos]]
+  local  = ".oh-my-zsh"
+  bare   = "oh-my-zsh"
+  remote = ".oh-my-zsh"
+
+[[data.offline_repos]]
+  local  = "zsh-custom/plugins/zsh-autosuggestions"
+  bare   = "zsh-autosuggestions"
+  remote = "zsh-custom/plugins/zsh-autosuggestions"
+
+encryption = "age"
+
+[age]
+  identity = "{{ .chezmoi.homeDir }}/.config/chezmoi/key.txt"
+  recipient = "age1z3r3dsvvxqe2w5nxeu2yu0t4zy74d8tvrsaey8sf9uw04apflu6qmp3ca8"
+
+[git]
+  autoCommit = true
+  autoPush = {{ not $offline }}

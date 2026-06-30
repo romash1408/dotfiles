@@ -1,0 +1,32 @@
+{{- if .offline -}}
+#!/bin/sh
+# Pulls oh-my-zsh and plugins from local bare repos after chezmoi applies dotfiles.
+# Bare repos are kept up to date by chezmoi-upload-offline.sh run on the main machine.
+set -e
+
+pull_or_clone() {
+  bare="$HOME/${1}.git"
+  dest="$HOME/$2"
+  if [ ! -d "$bare" ]; then
+    echo "  SKIP $1: bare repo $bare not found (run chezmoi-upload-offline.sh first)"
+    return
+  fi
+  if [ -d "$dest/.git" ]; then
+    branch=$(git -C "$dest" symbolic-ref --short HEAD 2>/dev/null || echo main)
+    git -C "$dest" fetch origin --quiet
+    git -C "$dest" reset --hard "origin/$branch" --quiet
+    echo "  updated $dest"
+  else
+    mkdir -p "$(dirname "$dest")"
+    git clone "$bare" "$dest" --quiet
+    echo "  cloned  $dest"
+  fi
+  chmod go-rwx "$dest"
+}
+
+echo "==> Pulling offline repos..."
+{{ range .offline_repos -}}
+pull_or_clone "{{ .bare }}" "{{ .remote }}"
+{{ end -}}
+echo "==> Done."
+{{- end -}}

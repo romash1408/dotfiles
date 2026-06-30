@@ -1,0 +1,13 @@
+{{- if not .offline -}}
+[".oh-my-zsh"]
+  type = "git-repo"
+  url = "https://github.com/ohmyzsh/ohmyzsh.git"
+  refreshPeriod = "168h"
+  private = true
+
+["zsh-custom/plugins/zsh-autosuggestions"]
+  type = "git-repo"
+  url = "https://github.com/zsh-users/zsh-autosuggestions.git"
+  refreshPeriod = "168h"
+  private = true
+{{- end -}}

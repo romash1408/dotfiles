@@ -1,0 +1,176 @@
+{{- if and .work (eq .chezmoi.os "darwin") -}}
+#!/usr/bin/env bash
+# chezmoi-upload-offline.sh — bootstrap / sync an offline (no-internet) machine.
+#
+# Usage: chezmoi-upload-offline.sh <ssh-alias> [KEY=VALUE ...]
+#   KEY=VALUE pairs are pre-seeded into chezmoi config on first init.
+#   KEY=VALUE is needed for promptBoolOnce variables (work, hasGUI, etc.).
+#   Example: chezmoi-upload-offline.sh dev work=true hasGUI=false
+#
+# What it does:
+#   1. Uploads chezmoi binary if missing on remote
+#   2. For each repo (dotfiles + offline_repos): adds local git remote, inits
+#      bare repo on remote if needed, pushes
+#   3. Runs chezmoi init (first time) or chezmoi update on remote
+#   After chezmoi apply, run_after_pull-offline-repos.sh runs automatically
+#   on the remote and clones/updates working dirs for all offline_repos.
+#
+# To add a new repo: add [[data.offline_repos]] in .chezmoi.toml.tmpl.
+# This script and run_push-to-dev.sh pick it up automatically.
+
+set -euo pipefail
+
+ALIAS=${1:?Usage: $0 <ssh-alias> [KEY=VALUE ...]}
+shift
+
+# ── template-rendered values ──────────────────────────────────────────────────
+DOTFILES_LOCAL="{{ .chezmoi.sourceDir }}"
+
+# Array of "local_rel_to_HOME:bare_name:remote_rel_to_HOME"
+REPOS=(
+{{ range .offline_repos -}}
+  "{{ .local }}:{{ .bare }}:{{ .remote }}"
+{{ end -}}
+)
+
+# ── parse extra chezmoi data from CLI args ────────────────────────────────────
+declare -A SEED_DATA
+for arg in "$@"; do
+  IFS='=' read -r k v <<< "$arg"
+  SEED_DATA["$k"]="$v"
+done
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*" >&2; }
+ok()   { printf '  \033[1;32m✓\033[0m %s\n' "$*" >&2; }
+warn() { printf '  \033[1;33m!\033[0m %s\n' "$*" >&2; }
+
+# Run a command on the remote, with ~/.local/bin in PATH
+rsh() { ssh "$ALIAS" "export PATH=\"\$HOME/.local/bin:\$PATH\"; $*"; }
+
+REMOTE_HOME=$(ssh "$ALIAS" 'echo $HOME')
+
+# ── 1. chezmoi binary ─────────────────────────────────────────────────────────
+step "chezmoi binary on $ALIAS"
+if rsh "command -v chezmoi >/dev/null 2>&1"; then
+  ok "already installed ($(rsh "chezmoi --version 2>&1 | head -1"))"
+else
+  LOCAL_VER=$(chezmoi --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  REMOTE_OS=$(ssh "$ALIAS" 'uname -s' | tr '[:upper:]' '[:lower:]')
+  REMOTE_ARCH=$(ssh "$ALIAS" 'uname -m')
+  case "$REMOTE_ARCH" in
+    x86_64)        REMOTE_ARCH=amd64 ;;
+    aarch64|arm64) REMOTE_ARCH=arm64 ;;
+    armv7*)        REMOTE_ARCH=arm ;;
+  esac
+
+  step "Downloading chezmoi ${LOCAL_VER} for ${REMOTE_OS}/${REMOTE_ARCH}..."
+  TMPBIN=$(mktemp)
+  curl -fsSL \
+    "https://github.com/twpayne/chezmoi/releases/download/v${LOCAL_VER}/chezmoi_${LOCAL_VER}_${REMOTE_OS}_${REMOTE_ARCH}.tar.gz" \
+    | tar -xzO chezmoi > "$TMPBIN"
+  rsh "mkdir -p ~/.local/bin"
+  scp -q "$TMPBIN" "$ALIAS:.local/bin/chezmoi"
+  rsh "chmod +x ~/.local/bin/chezmoi"
+  rm -f "$TMPBIN"
+  ok "installed chezmoi ${LOCAL_VER}"
+fi
+
+# ── 2-3. bare repos: init on remote + push ────────────────────────────────────
+push_repo() {
+  local local_path=$1 bare=$2
+  local remote_bare="$REMOTE_HOME/${bare}.git"
+
+  step "[$bare] bare repo"
+
+  # Init bare repo on remote if missing
+  if ssh "$ALIAS" "test -d '$remote_bare'"; then
+    ok "bare repo exists"
+  else
+    ssh "$ALIAS" "git init --bare '$remote_bare'"
+    ok "initialized bare repo at $remote_bare"
+  fi
+
+  # Add local remote if missing
+  if git -C "$local_path" remote get-url "$ALIAS" &>/dev/null; then
+    ok "local remote '$ALIAS' already set"
+  else
+    git -C "$local_path" remote add "$ALIAS" "${ALIAS}:${bare}.git"
+    ok "added local remote '$ALIAS' → ${ALIAS}:${bare}.git"
+  fi
+
+  # Unshallow if needed — chezmoi git-repo externals may be shallow clones;
+  # pushing a shallow repo to an empty bare repo fails with "shallow update not allowed"
+  if git -C "$local_path" rev-parse --is-shallow-repository 2>/dev/null | grep -q true; then
+    ok "unshallowing $local_path (source machine has internet)..."
+    git -C "$local_path" fetch --unshallow --quiet
+  fi
+
+  # Push
+  local branch
+  branch=$(git -C "$local_path" symbolic-ref --short HEAD 2>/dev/null || echo main)
+  git -C "$local_path" push "$ALIAS" "HEAD:${branch}" --force-with-lease
+  ok "pushed"
+
+  # Fix bare repo HEAD to point to the actual branch name — without this,
+  # "git clone" (used by chezmoi init) fails with "nonexistent ref" and
+  # leaves an empty working tree.
+  ssh "$ALIAS" "git -C '$remote_bare' symbolic-ref HEAD 'refs/heads/${branch}'"
+}
+
+push_repo "$DOTFILES_LOCAL" "dotfiles"
+for spec in "${REPOS[@]}"; do
+  IFS=':' read -r rel_local bare _rel_remote <<< "$spec"
+  push_repo "$HOME/$rel_local" "$bare"
+done
+
+# ── 3b. age key — copy if not present ────────────────────────────────────────
+step "age key on $ALIAS"
+LOCAL_KEY="$HOME/.config/chezmoi/key.txt"
+REMOTE_KEY="$REMOTE_HOME/.config/chezmoi/key.txt"
+if [ ! -f "$LOCAL_KEY" ]; then
+  warn "no age key at $LOCAL_KEY — skipping (remote will not be able to decrypt secrets)"
+elif ssh "$ALIAS" "test -f '$REMOTE_KEY'"; then
+  ok "age key already present"
+else
+  ssh "$ALIAS" "mkdir -p '$REMOTE_HOME/.config/chezmoi' && chmod 700 '$REMOTE_HOME/.config/chezmoi'"
+  scp -q "$LOCAL_KEY" "$ALIAS:.config/chezmoi/key.txt"
+  ssh "$ALIAS" "chmod 600 '$REMOTE_KEY'"
+  ok "copied age key → $ALIAS:.config/chezmoi/key.txt"
+fi
+
+# ── 4. chezmoi init / update on remote ───────────────────────────────────────
+step "chezmoi on $ALIAS"
+
+CHEZMOI_SOURCE="$REMOTE_HOME/.local/share/chezmoi"
+if rsh "test -d '$CHEZMOI_SOURCE/.git'"; then
+  ok "already initialized, running update..."
+  rsh "chezmoi update --no-tty"
+else
+  ok "first init — pre-seeding config..."
+
+  # Build [data] section: offline is auto-detected by hostname, but
+  # promptBoolOnce vars (work, hasGUI, …) need to be pre-seeded to avoid
+  # interactive prompts in non-TTY context.
+  TOML="[data]\n"
+  for k in "${!SEED_DATA[@]}"; do
+    v="${SEED_DATA[$k]}"
+    if [[ "$v" == "true" || "$v" == "false" ]]; then
+      TOML+="  $k = $v\n"
+    else
+      TOML+="  $k = \"$v\"\n"
+    fi
+  done
+
+  rsh "mkdir -p ~/.config/chezmoi && printf '$TOML' > ~/.config/chezmoi/chezmoi.toml"
+  rsh "chezmoi init '$REMOTE_HOME/dotfiles.git' --no-tty"
+  rsh "chezmoi apply --no-tty"
+fi
+
+# run_after_pull-offline-repos.sh runs automatically as part of chezmoi apply.
+# If you need to re-run it manually: chezmoi apply on the remote machine.
+
+step "Done — $ALIAS is up to date."
+echo "  chezmoi update   # to sync future changes on the remote"
+echo "  git -C ~/.local/share/chezmoi remote   # to see all offline remotes"
+{{- end -}}
