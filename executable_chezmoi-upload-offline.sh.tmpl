@@ -53,7 +53,7 @@ REMOTE_HOME=$(ssh "$ALIAS" 'echo $HOME')
 
 # ── 1. chezmoi binary ─────────────────────────────────────────────────────────
 step "chezmoi binary on $ALIAS"
-if rsh "command -v chezmoi >/dev/null 2>&1"; then
+if rsh "chezmoi --version >/dev/null 2>&1"; then
   ok "already installed ($(rsh "chezmoi --version 2>&1 | head -1"))"
 else
   LOCAL_VER=$(chezmoi --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -97,8 +97,9 @@ else
         break
       fi
     done <<EOF
-$(curl -fsSL "https://api.github.com/repos/twpayne/chezmoi/releases?per_page=30" \
-  | grep '"tag_name"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+$(curl -fsSL "https://api.github.com/repos/twpayne/chezmoi/releases?per_page=50" \
+  | grep '"tag_name"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+  | awk -F. '!seen[$1"."$2]++')
 EOF
     if [ -n "$INSTALLED" ]; then
       ok "installed chezmoi ${INSTALLED} (compatible with remote glibc)"
