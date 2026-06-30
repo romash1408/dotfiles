@@ -33,11 +33,12 @@ REPOS=(
 {{ end -}}
 )
 
-# ── parse extra chezmoi data from CLI args ────────────────────────────────────
-declare -A SEED_DATA
+# KEY=VALUE args passed to the script; stored as newline-separated "k=v" list
+# (avoids bash 4+ associative arrays — macOS ships bash 3.2)
+SEED_ARGS=""
 for arg in "$@"; do
-  IFS='=' read -r k v <<< "$arg"
-  SEED_DATA["$k"]="$v"
+  SEED_ARGS="${SEED_ARGS}${arg}
+"
 done
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -153,14 +154,16 @@ else
   # promptBoolOnce vars (work, hasGUI, …) need to be pre-seeded to avoid
   # interactive prompts in non-TTY context.
   TOML="[data]\n"
-  for k in "${!SEED_DATA[@]}"; do
-    v="${SEED_DATA[$k]}"
-    if [[ "$v" == "true" || "$v" == "false" ]]; then
-      TOML+="  $k = $v\n"
+  while IFS='=' read -r k v; do
+    [ -z "$k" ] && continue
+    if [ "$v" = "true" ] || [ "$v" = "false" ]; then
+      TOML="${TOML}  $k = $v\n"
     else
-      TOML+="  $k = \"$v\"\n"
+      TOML="${TOML}  $k = \"$v\"\n"
     fi
-  done
+  done <<EOF
+$SEED_ARGS
+EOF
 
   rsh "mkdir -p ~/.config/chezmoi && printf '$TOML' > ~/.config/chezmoi/chezmoi.toml"
   rsh "chezmoi init '$REMOTE_HOME/dotfiles.git' --no-tty"
