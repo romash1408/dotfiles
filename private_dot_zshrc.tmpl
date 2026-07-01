@@ -84,6 +84,28 @@ plugins=(
 
 source $ZSH/oh-my-zsh.sh
 
+# Hash hostname into a palette split by machine type:
+#   work     → green/yellow-green (olive → lime → yellow-green)
+#   personal → cool (blue → cyan → purple)
+() {
+  local h=0 c
+  for c in ${(s::)HOST}; do
+    (( h += $(printf '%d' "'$c") ))
+  done
+{{ if .work -}}
+  local -a main=(64 70 106 112 118 148)
+  local -a dirs=(106 112 148 154 190 220)
+{{- else -}}
+  local -a main=(27 33 39 69 105 135)
+  local -a dirs=(39 51 87 105 147 177)
+{{- end }}
+  local idx=$(( h % ${#main} + 1 ))
+  typeset -g MACHINE_COLOR=${main[$idx]}
+  typeset -g DIR_COLOR=${dirs[$idx]}
+}
+PROMPT="%F{${DIR_COLOR}}%/%{$reset_color%} \$(git_prompt_info)\$(bzr_prompt_info)%F{${MACHINE_COLOR}}[%n@%m]%{$reset_color%} %{$fg[white]%}[%T]%{$reset_color%}
+%F{${MACHINE_COLOR}}>%{$reset_color%} "
+
 # User configuration
 
 # Preferred editor for local and remote sessions
