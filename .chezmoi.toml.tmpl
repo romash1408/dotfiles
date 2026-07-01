@@ -3,6 +3,7 @@
 {{- $hasGUI := promptBoolOnce . "hasGUI" "Does this machine have a GUI" -}}
 
 encryption = "age"
+umask = 0o022
 
 [data]
   offline = {{ $offline }}
