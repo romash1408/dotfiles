@@ -90,7 +90,7 @@ source $ZSH/oh-my-zsh.sh
 #   personal → cool (blue → cyan → purple)
 _mc_h=0
 for _mc_c in ${(s::)HOST}; do
-  (( _mc_h += $(printf '%d' "'$_mc_c") ))
+  (( _mc_h = _mc_h * 31 + $(printf '%d' "'$_mc_c") ))
 done
 {{ if .work -}}
 _mc_main=(64 70 106 112 118 148)
@@ -99,8 +99,8 @@ _mc_dirs=(106 112 148 154 190 220)
 _mc_main=(27 33 39 69 105 135)
 _mc_dirs=(39 51 87 105 147 177)
 {{- end }}
-MACHINE_COLOR=${_mc_main[$(( _mc_h % ${#_mc_main} + 1 ))]}
-DIR_COLOR=${_mc_dirs[$(( _mc_h % ${#_mc_dirs} + 1 ))]}
+MACHINE_COLOR=${_mc_main[$(( (_mc_h % ${#_mc_main} + ${#_mc_main}) % ${#_mc_main} + 1 ))]}
+DIR_COLOR=${_mc_dirs[$(( (_mc_h % ${#_mc_dirs} + ${#_mc_dirs}) % ${#_mc_dirs} + 1 ))]}
 unset _mc_h _mc_c _mc_main _mc_dirs
 PROMPT="%F{${DIR_COLOR}}%/%{$reset_color%} \$(git_prompt_info)\$(bzr_prompt_info)%F{${MACHINE_COLOR}}[%n@%m]%{$reset_color%} %{$fg[white]%}[%T]%{$reset_color%}
 %F{${MACHINE_COLOR}}>%{$reset_color%} "
