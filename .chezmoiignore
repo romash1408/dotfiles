@@ -11,3 +11,7 @@ README.md
 {{ if not (and .work (eq .chezmoi.os "darwin")) }}
 chezmoi-upload-offline.sh
 {{ end }}
+
+{{ if and .work .offline }}
+.ssh
+{{ end }}
