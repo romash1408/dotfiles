@@ -14,11 +14,11 @@ Host *
 
 {{ if not (and .work .offline) }}
 Host cloud
-  HostName cloud.dybin.in
+  HostName 158.160.128.176
   User romash1408
 
 Host kg
-  HostName kg.dybin.in
+  HostName 188.240.213.182
   User romash1408
 
 Match originalhost hp exec "ping -c1 -W1 192.168.86.1 >/dev/null 2>&1"
