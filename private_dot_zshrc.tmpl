@@ -114,12 +114,16 @@ fi
 
 {{ if .work }}
 
-{{ if false }}
-# Fix agent forwarding with tmux
-export SSH_AUTH_SOCK=$HOME/.ssh/ssh_auth_sock
-{{ end }}
-
 # Yandex
+
+{{ if .offline }}
+# Fix ssh agent forwarding with tmux
+export SSH_AUTH_SOCK=$HOME/.ssh/SSH_AUTH_SOCK
+
+# Claude Eliza Configuration
+export ANTHROPIC_BASE_URL="https://api.eliza.yandex.net/raw/anthropic"
+export ANTHROPIC_AUTH_TOKEN="$(cat "${HOME}/.config/secrets/anthropic_auth_token" 2>/dev/null)"
+{{- end -}}
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
@@ -154,10 +158,4 @@ export PATH=$(brew --prefix mysql@8.4)/bin:$PATH
 export PATH=$(brew --prefix python)/libexec/bin:$PATH
 export ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
 export CHROME_EXECUTABLE="/Applications/Arc.app/Contents/MacOS/Arc"
-{{- end -}}
-
-{{- if and .offline .work -}}
-# Claude Eliza Configuration
-export ANTHROPIC_BASE_URL="https://api.eliza.yandex.net/raw/anthropic"
-export ANTHROPIC_AUTH_TOKEN="$(cat "${HOME}/.config/secrets/anthropic_auth_token" 2>/dev/null)"
 {{- end -}}
