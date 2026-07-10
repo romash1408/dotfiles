@@ -1,5 +1,9 @@
 export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
 
+{{ if eq .chezmoi.os "linux" -}}
+[ -x /home/linuxbrew/.linuxbrew/bin/brew ] && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+{{- end }}
+
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 

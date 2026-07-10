@@ -15,6 +15,7 @@ sudo apt install zsh git curl   # Debian/Ubuntu
 sh -c "$(curl -fsLS get.chezmoi.io)"
 
 # 3. Init + apply (will prompt: work machine? has GUI?)
+# Also installs Homebrew + packages from .chezmoidata/packages.toml (see Packages below)
 chezmoi init --apply git@github.com:romash1408/dotfiles.git
 
 # 4. Set zsh as default shell
@@ -89,6 +90,28 @@ auto-detected from the hostname.
 3. Runs `chezmoi init ~/dotfiles.git` + `chezmoi apply` on the remote
 4. `run_after_pull` (triggered by apply) clones `oh-my-zsh` and plugins
    from the bare repos into their working directories (`chmod 700`)
+
+## Packages
+
+`run_onchange_before_install-packages.sh` installs [Homebrew](https://brew.sh)
+(macOS `/opt/homebrew`, Linux `/home/linuxbrew/.linuxbrew`) and everything from
+`.chezmoidata/packages.toml` via a single `brew bundle`:
+
+| List | Installed on |
+|------|--------------|
+| `packages.brews` | everywhere (CLI tools) |
+| `packages.darwin.casks` | macOS (GUI apps) |
+| `packages.linux.flatpaks` | Linux with `hasGUI=true` (flatpak + flathub are set up automatically) |
+
+- Skipped entirely on offline machines.
+- Re-runs automatically on `chezmoi apply` whenever the package list changes.
+- On servers: system packages (services, monitoring) live in ansible (`~/infra`);
+  this list is only for tools I run by hand (htop, mc, kubectl, ...) — brew keeps
+  them user-space and out of ansible's way.
+- Homebrew on Linux needs x86_64 or ARM64 with glibc (Tier 1 since brew 5.0).
+  Won't work in Termux (bionic libc) — use `pkg` there.
+
+To add a package: edit `.chezmoidata/packages.toml`, run `chezmoi apply`.
 
 ## Day-to-day
 

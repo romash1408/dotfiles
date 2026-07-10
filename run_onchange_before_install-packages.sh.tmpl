@@ -1,0 +1,47 @@
+{{- if not .offline -}}
+#!/bin/bash
+# Installs Homebrew (if missing) and all packages from .chezmoidata/packages.toml.
+# run_onchange: re-runs whenever the rendered package list below changes.
+set -e
+
+for _p in /opt/homebrew /usr/local /home/linuxbrew/.linuxbrew; do
+  if [ -x "$_p/bin/brew" ]; then BREW="$_p/bin/brew"; break; fi
+done
+
+if [ -z "$BREW" ]; then
+  echo "==> Installing Homebrew..."
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  for _p in /opt/homebrew /usr/local /home/linuxbrew/.linuxbrew; do
+    if [ -x "$_p/bin/brew" ]; then BREW="$_p/bin/brew"; break; fi
+  done
+  [ -n "$BREW" ] || { echo "ERROR: brew not found after install" >&2; exit 1; }
+fi
+
+eval "$("$BREW" shellenv)"
+
+{{ if and (eq .chezmoi.os "linux") .hasGUI .packages.linux.flatpaks -}}
+if ! command -v flatpak >/dev/null 2>&1; then
+  echo "==> Installing flatpak..."
+  sudo apt-get install -y flatpak
+fi
+flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+{{ end -}}
+
+echo "==> brew bundle..."
+brew bundle --file=- <<'BREWFILE'
+{{ range .packages.brews -}}
+brew "{{ . }}"
+{{ end -}}
+{{ if eq .chezmoi.os "darwin" -}}
+{{ range .packages.darwin.casks -}}
+cask "{{ . }}"
+{{ end -}}
+{{ end -}}
+{{ if and (eq .chezmoi.os "linux") .hasGUI -}}
+{{ range .packages.linux.flatpaks -}}
+flatpak "{{ . }}"
+{{ end -}}
+{{ end -}}
+BREWFILE
+echo "==> Packages done."
+{{- end -}}

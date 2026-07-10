@@ -1,0 +1,15 @@
+[packages]
+# CLI tools installed everywhere (brew formulae)
+brews = [
+  "git", "curl", "wget", "vim", "tmux", "htop", "jq",
+  "tree", "ncdu", "ripgrep", "fzf",
+  "mc", "kubectl", "helm",
+]
+
+[packages.darwin]
+# macOS GUI apps (brew casks)
+casks = []
+
+[packages.linux]
+# Linux GUI apps (flatpak from flathub, "org.app.Id"), only when hasGUI
+flatpaks = []
