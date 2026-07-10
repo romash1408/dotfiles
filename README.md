@@ -26,6 +26,37 @@ chsh -s "$zsh_path"
 
 Re-login or open a new terminal. Done.
 
+## New server over SSH (headless, non-TTY)
+
+The repo is public, so `https` init works without GitHub keys. `promptBoolOnce`
+can't ask questions without a TTY — pre-seed them with `--promptBool`:
+
+```sh
+host=kg   # ssh alias
+
+# 1. Age key (from a machine that already has it)
+ssh $host 'mkdir -p ~/.config/chezmoi'
+scp ~/.config/chezmoi/key.txt $host:.config/chezmoi/key.txt
+ssh $host 'chmod 600 ~/.config/chezmoi/key.txt'
+
+# 2. chezmoi binary
+ssh $host 'sh -c "$(curl -fsLS get.chezmoi.io)" -- -b ~/.local/bin'
+
+# 3. Init + apply (--force: without TTY chezmoi can't ask about overwriting
+#    a manually-installed ~/.oh-my-zsh etc.)
+ssh $host '~/.local/bin/chezmoi init --apply --force --promptBool work=false,hasGUI=false https://github.com/romash1408/dotfiles.git'
+```
+
+Homebrew install needs `sudo` for `/home/linuxbrew` — the user must have
+passwordless sudo (true on kg/cloud/backup), otherwise run apply from an
+interactive ssh session instead.
+
+Seen in practice (2026-07, all three servers):
+- `chezmoi init` cloned a stale commit — check `git -C ~/.local/share/chezmoi log -1`
+  after init and run `chezmoi update --force` if it's behind `origin/main`.
+- If `chezmoi update` fails with "git: exit status 1" about upstream:
+  `git -C ~/.local/share/chezmoi branch --set-upstream-to=origin/main main`
+
 ## Age encryption key
 
 Secrets (tokens, SSH keys) are stored in the repo encrypted with [age](https://age-encryption.org).
