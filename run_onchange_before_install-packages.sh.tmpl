@@ -4,6 +4,16 @@
 # run_onchange: re-runs whenever the rendered package list below changes.
 set -e
 
+{{ if eq .chezmoi.os "linux" -}}
+# Homebrew bottles need glibc >= 2.35; on older hosts brew builds the whole
+# toolchain from source, which kills small VPSes (backup: Debian 11, 1GB RAM)
+_glibc=$(ldd --version | head -1 | grep -oE '[0-9]+\.[0-9]+$')
+if [ "$(printf '2.35\n%s\n' "$_glibc" | sort -V | head -1)" != "2.35" ]; then
+  echo "==> SKIP packages: glibc $_glibc < 2.35, no usable bottles on this host"
+  exit 0
+fi
+{{ end -}}
+
 for _p in /opt/homebrew /usr/local /home/linuxbrew/.linuxbrew; do
   if [ -x "$_p/bin/brew" ]; then BREW="$_p/bin/brew"; break; fi
 done

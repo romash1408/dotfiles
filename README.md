@@ -141,6 +141,9 @@ auto-detected from the hostname.
   them user-space and out of ansible's way.
 - Homebrew on Linux needs x86_64 or ARM64 with glibc (Tier 1 since brew 5.0).
   Won't work in Termux (bionic libc) — use `pkg` there.
+- On Linux with glibc < 2.35 (Debian 11 and older) the script skips packages
+  entirely: there are no usable bottles, brew builds the whole toolchain from
+  source — that took down backup (1GB RAM) for an hour. Upgrade the OS first.
 
 To add a package: edit `.chezmoidata/packages.toml`, run `chezmoi apply`.
 
