@@ -45,6 +45,9 @@ brew bundle --file=- <<'BREWFILE'
 brew "{{ . }}"
 {{ end -}}
 {{ if eq .chezmoi.os "darwin" -}}
+{{ range .packages.darwin.brews -}}
+brew "{{ . }}"
+{{ end -}}
 {{ range .packages.darwin.casks -}}
 cask "{{ . }}"
 {{ end -}}

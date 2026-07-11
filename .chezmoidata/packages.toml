@@ -1,12 +1,17 @@
 [packages]
-# CLI tools installed everywhere (brew formulae)
+# CLI tools installed everywhere (brew formulae).
+# NO tmux here: on Linux it must be the system one (apt) — a brew tmux client
+# can't talk to system tmux servers (claude-remote on p8p) and 3.7b is broken
+# in proot ("open terminal failed: not a terminal").
 brews = [
-  "git", "curl", "wget", "vim", "tmux", "htop", "jq",
+  "git", "curl", "wget", "vim", "htop", "jq",
   "tree", "ncdu", "ripgrep", "fzf",
   "mc", "kubectl", "helm",
 ]
 
 [packages.darwin]
+# macOS-only brew formulae (no system tmux there to conflict with)
+brews = ["tmux"]
 # macOS GUI apps (brew casks)
 casks = []
 
