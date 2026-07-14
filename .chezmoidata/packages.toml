@@ -16,5 +16,9 @@ brews = ["tmux"]
 casks = []
 
 [packages.linux]
+# System (apt) packages for Linux: client/server tools that must match the
+# system-side daemon (tmux: claude-remote's server runs /usr/bin/tmux).
+# Package name must equal the binary name (used for the "already installed" check).
+apt = ["tmux"]
 # Linux GUI apps (flatpak from flathub, "org.app.Id"), only when hasGUI
 flatpaks = []

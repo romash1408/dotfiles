@@ -4,6 +4,18 @@
 # run_onchange: re-runs whenever the rendered package list below changes.
 set -e
 
+{{ if and (eq .chezmoi.os "linux") .packages.linux.apt -}}
+# apt packages first: installed even where brew is skipped (old glibc)
+_missing=""
+{{ range .packages.linux.apt -}}
+command -v {{ . }} >/dev/null 2>&1 || _missing="$_missing {{ . }}"
+{{ end -}}
+if [ -n "$_missing" ]; then
+  echo "==> apt install:$_missing"
+  sudo apt-get install -y $_missing
+fi
+{{ end -}}
+
 {{ if eq .chezmoi.os "linux" -}}
 # Homebrew bottles need glibc >= 2.35; on older hosts brew builds the whole
 # toolchain from source, which kills small VPSes (backup: Debian 11, 1GB RAM).
