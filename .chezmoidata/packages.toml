@@ -1,8 +1,9 @@
 [packages]
 # CLI tools installed everywhere (brew formulae).
-# NO tmux here: on Linux it must be the system one (apt) — a brew tmux client
-# can't talk to system tmux servers (claude-remote on p8p) and 3.7b is broken
-# in proot ("open terminal failed: not a terminal").
+# NO tmux here: on Linux it must be the system one (apt). A newer brew tmux
+# client can't attach to an older system tmux server (claude-remote on p8p
+# runs /usr/bin/tmux): "open terminal failed: not a terminal". Verified: brew
+# 3.7b client + brew server works, brew client + system 3.5a server fails.
 brews = [
   "git", "curl", "wget", "vim", "htop", "jq",
   "tree", "ncdu", "ripgrep", "fzf",
