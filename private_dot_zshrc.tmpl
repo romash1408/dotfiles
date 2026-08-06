@@ -2,6 +2,10 @@ export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
 
 {{ if eq .chezmoi.os "linux" -}}
 [ -x /home/linuxbrew/.linuxbrew/bin/brew ] && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+# Debian keeps sbin out of a regular user's PATH, but that's where ifconfig,
+# ethtool, blkid and friends live. Appended, so nothing gets shadowed.
+export PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin"
 {{- end }}
 
 # Path to your Oh My Zsh installation.

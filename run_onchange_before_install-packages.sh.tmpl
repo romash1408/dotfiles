@@ -8,7 +8,9 @@ set -e
 # apt packages first: installed even where brew is skipped (old glibc)
 _missing=""
 {{ range .packages.linux.apt -}}
-command -v {{ . }} >/dev/null 2>&1 || _missing="$_missing {{ . }}"
+{{ $pkg := . }}{{ $bin := . -}}
+{{ if contains ":" . }}{{ $pkg = (splitList ":" .) | first }}{{ $bin = (splitList ":" .) | last }}{{ end -}}
+command -v {{ $bin }} >/dev/null 2>&1 || _missing="$_missing {{ $pkg }}"
 {{ end -}}
 if [ -n "$_missing" ]; then
   echo "==> apt install:$_missing"

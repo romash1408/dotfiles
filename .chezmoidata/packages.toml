@@ -18,8 +18,11 @@ casks = []
 
 [packages.linux]
 # System (apt) packages for Linux: client/server tools that must match the
-# system-side daemon (tmux: claude-remote's server runs /usr/bin/tmux).
-# Package name must equal the binary name (used for the "already installed" check).
-apt = ["tmux"]
+# system-side daemon (tmux: claude-remote's server runs /usr/bin/tmux), plus
+# things brew doesn't ship on Linux (net-tools).
+# The "already installed" check is `command -v <binary>`. When the package name
+# differs from the binary, write "package:binary" — net-tools gives ifconfig,
+# netstat and route.
+apt = ["tmux", "net-tools:ifconfig"]
 # Linux GUI apps (flatpak from flathub, "org.app.Id"), only when hasGUI
 flatpaks = []
