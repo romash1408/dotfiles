@@ -125,8 +125,15 @@ fi
 # Yandex
 
 {{ if .offline }}
-# Fix ssh agent forwarding with tmux
-#export SSH_AUTH_SOCK=$HOME/.ssh/SSH_AUTH_SOCK
+# Fix ssh agent forwarding with tmux.
+# ~/.ssh/rc repoints ~/.ssh/ssh_auth_sock at the live agent socket on every
+# new SSH login; .tmux.conf pins every pane's SSH_AUTH_SOCK to that stable
+# path and keeps `tmux attach` from overwriting the pin with the attaching
+# connection's own socket. This export is just a fallback for panes started
+# before that tmux.conf fix was in effect.
+if [[ -n "$TMUX" ]]; then
+  export SSH_AUTH_SOCK="$HOME/.ssh/ssh_auth_sock"
+fi
 
 # Claude Eliza Configuration
 #export ANTHROPIC_BASE_URL="https://api.eliza.yandex.net/raw/anthropic"

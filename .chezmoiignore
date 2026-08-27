@@ -13,5 +13,9 @@ chezmoi-upload-offline.sh
 {{ end }}
 
 {{ if and .work .offline }}
-.ssh
+# Keep the private key off internal VMs, and skip .ssh/config there so a
+# stray `ssh <host-alias>` from inside one VM can't accidentally hop into
+# another machine's session.
+.ssh/id_rsa
+.ssh/config
 {{ end }}

@@ -1,0 +1,17 @@
+{{ if .offline -}}
+# Fix agent forwarding with tmux. Only needed on offline VMs reached over
+# ssh with a forwarded agent (see private_dot_zshrc.tmpl and .ssh/rc) -
+# on a laptop with a local agent this would just break it.
+#
+# Pin SSH_AUTH_SOCK to a stable symlink (kept pointed at the live agent
+# socket by ~/.ssh/rc on every ssh login), and stop `tmux attach` from
+# clobbering it: SSH_AUTH_SOCK is in update-environment by default, so every
+# attach was copying that connection's concrete socket path into the
+# session environment, overriding the pin below for any pane created
+# afterwards in that session.
+setenv -g SSH_AUTH_SOCK $HOME/.ssh/ssh_auth_sock
+set -g update-environment "DISPLAY KRB5CCNAME SSH_ASKPASS SSH_AGENT_PID SSH_CONNECTION SSH_TTY WINDOWID XAUTHORITY"
+{{ end -}}
+# Add colors support
+set -g default-terminal "screen-256color"
+
