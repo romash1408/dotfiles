@@ -126,12 +126,15 @@ fi
 
 {{ if .offline }}
 # Fix ssh agent forwarding with tmux
-export SSH_AUTH_SOCK=$HOME/.ssh/SSH_AUTH_SOCK
+#export SSH_AUTH_SOCK=$HOME/.ssh/SSH_AUTH_SOCK
 
 # Claude Eliza Configuration
-export ANTHROPIC_BASE_URL="https://api.eliza.yandex.net/raw/anthropic"
-export ANTHROPIC_AUTH_TOKEN="$(cat "${HOME}/.config/secrets/anthropic_auth_token" 2>/dev/null)"
+#export ANTHROPIC_BASE_URL="https://api.eliza.yandex.net/raw/anthropic"
+#export ANTHROPIC_AUTH_TOKEN="$(cat "${HOME}/.config/secrets/anthropic_auth_token" 2>/dev/null)"
 {{- end -}}
+
+# Managed by adv/frontend/scripts/install-internal-root-ca.sh
+export NODE_EXTRA_CA_CERTS="$HOME/.ssl/certs/YandexInternalRootCA.pem"
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
