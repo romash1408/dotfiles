@@ -1,0 +1,25 @@
+{{- if .work -}}
+#!/bin/bash
+# Copies git-arc-shim from the local arc checkout and symlinks ~/.local/bin/git to it.
+# run_onchange: re-fires when the shim script changes in arcadia.
+{{- $src := joinPath .chezmoi.homeDir "arcadia/junk/nodge/git-arc-shim/bin/git_arc_shim.py" }}
+{{- if stat $src }}
+# source: {{ include $src | sha256sum }}
+{{- end }}
+set -e
+
+SRC="$HOME/arcadia/junk/nodge/git-arc-shim/bin/git_arc_shim.py"
+DST="$HOME/.local/share/git-arc-shim/bin/git_arc_shim.py"
+LINK="$HOME/.local/bin/git"
+
+if [ ! -f "$SRC" ]; then
+  echo "==> git-arc-shim: arcadia not mounted, skipping"
+  exit 0
+fi
+
+mkdir -p "$(dirname "$DST")" "$HOME/.local/bin"
+cp "$SRC" "$DST"
+chmod +x "$DST"
+ln -sf "$DST" "$LINK"
+echo "==> git-arc-shim: $LINK -> $DST"
+{{- end }}

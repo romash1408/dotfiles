@@ -1,0 +1,13 @@
+#!/bin/bash
+# Set up a fake .git in the current arc working copy root so that
+# git-integrations (Claude Code, Zed, lazygit) recognize it as a repository.
+set -e
+
+ROOT=$(arc root 2>/dev/null) || { echo "gitarc: not inside an arc checkout" >&2; exit 1; }
+
+mkdir -p "$ROOT/.git/refs/remotes/origin"
+printf 'ref: refs/heads/trunk\n' > "$ROOT/.git/HEAD"
+printf 'ref: refs/remotes/origin/trunk\n' > "$ROOT/.git/refs/remotes/origin/HEAD"
+arc rev-parse trunk > "$ROOT/.git/refs/remotes/origin/trunk"
+
+echo "gitarc: initialized $ROOT/.git"
