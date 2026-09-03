@@ -2,3 +2,5 @@
 	email = romash1408@yandex.ru
 	login = romash1408
 	name = romash1408
+[init]
+        defaultBranch = main
