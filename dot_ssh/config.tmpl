@@ -27,6 +27,10 @@ Match originalhost hp exec "ping -c1 -W1 192.168.86.1 >/dev/null 2>&1"
 Host hp
   HostName hp.wg
   User romash1408
+  # Адрес у hp меняется (дома LAN, снаружи mesh), а host key один и тот же.
+  # Без алиаса ssh требует отдельную запись known_hosts под каждый адрес и
+  # ругается Host key verification failed при каждом переходе между сетями.
+  HostKeyAlias hp
 
 Host backup
   HostName 81.26.187.70
