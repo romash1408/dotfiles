@@ -45,6 +45,7 @@ Host p8p-linux
 {{ if .work }}
 Host dev
   HostName dubiner-dev.vla.yp-c.yandex.net
+  RemoteForward 127.0.0.1:9222 127.0.0.1:9222
 
 Host dev-mr
   HostName direct-dev-migration-runner.sas.yp-c.yandex.net
