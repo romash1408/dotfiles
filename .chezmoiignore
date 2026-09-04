@@ -19,3 +19,7 @@ chezmoi-upload-offline.sh
 .ssh/id_rsa
 .ssh/config
 {{ end }}
+
+{{ if or (ne .chezmoi.os "linux") (not .herdrServer) }}
+.config/systemd/user/herdr.service
+{{ end }}

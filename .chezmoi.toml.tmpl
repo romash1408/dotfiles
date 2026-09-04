@@ -1,6 +1,9 @@
 {{- $offline := hasSuffix "yp-c.yandex.net" .chezmoi.fqdnHostname -}}
 {{- $work := promptBoolOnce . "work" "Is this a work machine?" -}}
 {{- $hasGUI := promptBoolOnce . "hasGUI" "Does this machine have a GUI" -}}
+{{- /* Клиент herdr ставится везде (packages.toml), а сервер как systemd user
+     unit нужен только там, где нужны переживающие логаут панели. */ -}}
+{{- $herdrServer := promptBoolOnce . "herdrServer" "Run herdr as a persistent systemd user service?" -}}
 
 encryption = "age"
 umask = 0o022
@@ -9,6 +12,7 @@ umask = 0o022
   offline = {{ $offline }}
   work = {{ $work }}
   hasGUI = {{ $hasGUI }}
+  herdrServer = {{ $herdrServer }}
 
 # Repos synced to offline machines via chezmoi-upload-offline.sh.
 # Each entry: local (path relative to HOME on macOS), bare (name of bare repo,

@@ -8,6 +8,9 @@ brews = [
   "git", "curl", "wget", "vim", "htop", "jq",
   "tree", "ncdu", "ripgrep", "fzf",
   "mc", "kubectl", "helm",
+  # herdr: терминальный мультиплексор для агентов. Клиент нужен всюду,
+  # сервер как systemd-юнит — только при herdrServer (см. .chezmoiignore).
+  "herdr",
 ]
 
 [packages.darwin]

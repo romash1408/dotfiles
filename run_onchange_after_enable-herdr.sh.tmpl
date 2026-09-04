@@ -1,0 +1,34 @@
+{{ if and (eq .chezmoi.os "linux") .herdrServer -}}
+{{- $herdr := lookPath "herdr" | default "/home/linuxbrew/.linuxbrew/bin/herdr" -}}
+#!/bin/bash
+# Включает herdr.service. run_onchange: перезапускается только когда меняется
+# сам юнит — хеш шаблона ниже.
+# unit: {{ include "dot_config/systemd/user/herdr.service.tmpl" | sha256sum }}
+set -e
+
+command -v systemctl >/dev/null 2>&1 || exit 0
+systemctl --user daemon-reload
+systemctl --user enable herdr.service
+{{ if not .hasGUI }}
+# Без GUI нет graphical-session.target, юнит висит на default.target. Плюс
+# нужен linger, иначе user@.service (а с ним и сервер с панелями) умрёт при
+# выходе из ssh — ровно то, ради чего herdr на удалённой машине и нужен.
+if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != "yes" ]; then
+  sudo loginctl enable-linger "$USER"
+fi
+{{ end }}
+# Намеренно без restart: он убил бы все панели вместе с запущенными агентами.
+# Изменившийся юнит подхватится при следующем входе.
+if ! systemctl --user is-active --quiet herdr.service; then
+  # Если сервер уже поднят клиентом вне systemd, он держит сокет: юнит упал бы
+  # с "server is already running", а Restart=always загнал бы его в failed по
+  # StartLimitBurst. Такой сервер надо гасить вручную — herdr server stop
+  # сохранит session.json, и новый сервер восстановит сессии.
+  if {{ $herdr }} status 2>/dev/null | grep -q 'status: running'; then
+    echo "==> herdr server уже запущен вне systemd: юнит включён, но не стартован."
+    echo "    Мигрировать: herdr server stop && systemctl --user start herdr"
+  else
+    systemctl --user start herdr.service || true
+  fi
+fi
+{{ end -}}

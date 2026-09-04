@@ -1,0 +1,36 @@
+{{- $herdr := lookPath "herdr" | default "/home/linuxbrew/.linuxbrew/bin/herdr" -}}
+{{- $bin := dir $herdr -}}
+[Unit]
+Description=Herdr terminal workspace server (persistent AI-agent panes)
+Documentation=https://herdr.dev
+{{ if .hasGUI -}}
+# PartOf: при выключении/логауте systemd останавливает юнит упорядоченно и
+# успевает выполнить ExecStop. Пока сервер жил в session-scope, logind слал
+# SIGHUP панелям раньше сервера, тот считал это "закрыт последний воркспейс"
+# и делал persist.clear вместо persist.save — session.json стирался.
+After=graphical-session.target
+PartOf=graphical-session.target
+{{- end }}
+
+[Service]
+Type=exec
+ExecStart={{ $herdr }} server
+# Штатная остановка через сокет: сервер сначала сохраняет session.json,
+# и только потом гасит панели.
+ExecStop={{ $herdr }} server stop
+TimeoutStopSec=30
+KillMode=mixed
+# herdr завершается с кодом 0, когда закрыта последняя панель. При on-failure
+# юнит ушёл бы в inactive, а следующий `herdr` поднял бы сервер снова внутри
+# session-scope — и проблема с persist.clear вернулась бы.
+Restart=always
+RestartSec=2
+# В session-scope у herdr был TasksMax=infinity, в юните он получает
+# DefaultTasksMax (23657 на hp). См. herdrdev/herdr#3324: при упоре в TasksMax
+# сервер падает по fork/EAGAIN и шлёт SIGHUP всем панелям, без ошибки в логе.
+# Бэкстопом остаётся user-<uid>.slice.
+TasksMax=infinity
+Environment=PATH={{ $bin }}:%h/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+
+[Install]
+WantedBy={{ if .hasGUI }}graphical-session.target{{ else }}default.target{{ end }}
