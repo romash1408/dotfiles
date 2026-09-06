@@ -3,14 +3,27 @@
 [Unit]
 Description=Herdr terminal workspace server (persistent AI-agent panes)
 Documentation=https://herdr.dev
-{{ if .hasGUI -}}
-# PartOf: при выключении/логауте systemd останавливает юнит упорядоченно и
-# успевает выполнить ExecStop. Пока сервер жил в session-scope, logind слал
-# SIGHUP панелям раньше сервера, тот считал это "закрыт последний воркспейс"
-# и делал persist.clear вместо persist.save — session.json стирался.
-After=graphical-session.target
-PartOf=graphical-session.target
-{{- end }}
+# Намеренно на default.target, а НЕ на graphical-session.target — даже на
+# машинах с GUI.
+#
+# История. Пока сервер жил в session-scope, logind слал SIGHUP панелям раньше
+# сервера, тот считал это "закрыт последний воркспейс" и делал persist.clear
+# вместо persist.save — session.json стирался. Лечили связкой
+# After/PartOf=graphical-session.target: она давала упорядоченную остановку
+# с отработкой ExecStop.
+#
+# Почему привязку сняли (6 сен 2026). Сервер давно уехал из session-scope: он и
+# все панели живут в cgroup user@1000.service/app.slice/herdr.service, а в
+# session-<N>.scope остаются только sddm-helper, startplasma-x11 и ssh-agent —
+# SIGHUP при разлогине до панелей не дотягивается (проверено, KillUserProcesses
+# = false). PartOf при этом давал обратный эффект: выход из графики ОСТАНАВЛИВАЛ
+# сервер вместе со всеми панелями и работавшими в них агентами. Теперь разлогин
+# herdr не трогает — user@1000.service держится за счёт linger. Упорядоченную
+# остановку с ExecStop даёт остановка user@1000.service при выключении и ребуте.
+#
+# НЕ ВОЗВРАЩАТЬ graphical-session.target "чтобы не терялись сессии": потеря была
+# про session-scope, а не про target, и возврат снова начнёт убивать панели при
+# каждом разлогине.
 
 [Service]
 Type=exec
@@ -33,4 +46,4 @@ TasksMax=infinity
 Environment=PATH={{ $bin }}:%h/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 
 [Install]
-WantedBy={{ if .hasGUI }}graphical-session.target{{ else }}default.target{{ end }}
+WantedBy=default.target

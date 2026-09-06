@@ -8,15 +8,20 @@ set -e
 
 command -v systemctl >/dev/null 2>&1 || exit 0
 systemctl --user daemon-reload
+# disable перед enable: `enable` только добавляет симлинки и не убирает те, что
+# остались от прежней секции [Install]. При переезде с graphical-session.target
+# на default.target (6 сен 2026) старый симлинк иначе висит вечно, и юнит
+# оказывается WantedBy сразу двух таргетов. disable не останавливает работающий
+# юнит — панели переживают.
+systemctl --user disable herdr.service >/dev/null 2>&1 || true
 systemctl --user enable herdr.service
-{{ if not .hasGUI }}
-# Без GUI нет graphical-session.target, юнит висит на default.target. Плюс
-# нужен linger, иначе user@.service (а с ним и сервер с панелями) умрёт при
-# выходе из ssh — ровно то, ради чего herdr на удалённой машине и нужен.
+# Юнит всегда висит на default.target (см. комментарий в herdr.service.tmpl),
+# поэтому linger нужен ВЕЗДЕ, а не только на машинах без GUI: без него
+# user@.service — а с ним сервер и все панели — умрёт при выходе из ssh или из
+# графической сессии. Ровно то, ради чего herdr и нужен.
 if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != "yes" ]; then
   sudo loginctl enable-linger "$USER"
 fi
-{{ end }}
 # Намеренно без restart: он убил бы все панели вместе с запущенными агентами.
 # Изменившийся юнит подхватится при следующем входе.
 if ! systemctl --user is-active --quiet herdr.service; then
