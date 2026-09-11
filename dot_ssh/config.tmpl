@@ -46,6 +46,7 @@ Host p8p-linux
 Host dev
   HostName dubiner-dev.vla.yp-c.yandex.net
   RemoteForward 127.0.0.1:9222 127.0.0.1:9222
+  RemoteForward /home/dubiner/.xdg-open-svc.sock:$HOME/.xdg-open-svc.sock
 
 Host dev-mr
   HostName direct-dev-migration-runner.sas.yp-c.yandex.net
