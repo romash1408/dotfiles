@@ -27,6 +27,13 @@ Documentation=https://herdr.dev
 
 [Service]
 Type=exec
+# Сначала дождаться резолвинга. user@1000 стартует по linger, не дожидаясь сети
+# (на системный network-online.target user-юнит сослаться не может), и панели
+# поднимали `claude --resume` в пустую сеть: агенты крутили getaddrinfo без паузы,
+# на hp это тысячи DNS-запросов за 5–10 с загрузки (17 сен 2026 — 2 828 ошибок в
+# AdGuard). Выход всегда 0: без интернета herdr всё равно поднимется, через 60 с.
+# `$$` — экранирование для systemd, в шелл приезжает `$(seq 60)`.
+ExecStartPre=/bin/sh -c 'for i in $$(seq 60); do getent ahosts api.anthropic.com >/dev/null && exit 0; sleep 1; done; exit 0'
 ExecStart={{ $herdr }} server
 # Штатная остановка через сокет: сервер сначала сохраняет session.json,
 # и только потом гасит панели.
