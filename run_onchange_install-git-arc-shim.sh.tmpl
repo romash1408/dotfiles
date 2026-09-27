@@ -1,5 +1,5 @@
 {{- if .work -}}
-#!/bin/bash
+{{ template "bash-shebang" . }}
 # Copies git-arc-shim from the local arc checkout and symlinks ~/.local/bin/git to it.
 # run_onchange: re-fires when the shim script changes in arcadia.
 {{- $src := joinPath .chezmoi.homeDir "arcadia/junk/nodge/git-arc-shim/bin/git_arc_shim.py" }}

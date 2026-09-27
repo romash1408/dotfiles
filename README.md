@@ -57,6 +57,34 @@ Seen in practice (2026-07, all three servers):
 - If `chezmoi update` fails with "git: exit status 1" about upstream:
   `git -C ~/.local/share/chezmoi branch --set-upstream-to=origin/main main`
 
+## Termux (Android)
+
+No Homebrew there (it needs glibc, Android has bionic), so packages come from
+`pkg`. chezmoi from `pkg` is built with `GOOS=android`, so `.chezmoi.os` is
+`"android"` — every `eq .chezmoi.os "linux"` branch (apt, linuxbrew, herdr
+systemd unit) is skipped automatically.
+
+```sh
+# 1. Prerequisites (chezmoi itself from pkg, not get.chezmoi.io)
+pkg install -y chezmoi git zsh openssh
+
+# 2. Age key (see below)
+mkdir -p ~/.config/chezmoi && chmod 700 ~/.config/chezmoi
+# ...put key.txt there, chmod 600
+
+# 3. Init + apply — installs packages.android.pkg via `pkg install`
+chezmoi init --apply https://github.com/romash1408/dotfiles.git
+
+# 4. zsh as default shell (Termux's own chsh, no /etc/shells)
+chsh -s zsh
+```
+
+Scripts run by chezmoi must not hardcode `#!/bin/bash`: there is no `/bin` on
+Android, and chezmoi (a Go binary) bypasses termux-exec, which rewrites such
+shebangs for ordinary shells. Use `{{ template "bash-shebang" . }}` as the first
+line of bash `run_` scripts that can render on Termux — it resolves bash via
+`lookPath` there and stays `#!/bin/bash` everywhere else.
+
 ## Age encryption key
 
 Secrets (tokens, SSH keys) are stored in the repo encrypted with [age](https://age-encryption.org).
@@ -133,6 +161,8 @@ auto-detected from the hostname.
 | `packages.brews` | everywhere (CLI tools) |
 | `packages.darwin.casks` | macOS (GUI apps) |
 | `packages.linux.flatpaks` | Linux with `hasGUI=true` (flatpak + flathub are set up automatically) |
+| `packages.linux.apt` | Linux, via `apt` (tmux, net-tools — must match system daemons) |
+| `packages.android.pkg` | Termux, via `pkg` — **instead of** everything above, no brew there |
 
 - Skipped entirely on offline machines.
 - Re-runs automatically on `chezmoi apply` whenever the package list changes.
@@ -140,7 +170,9 @@ auto-detected from the hostname.
   this list is only for tools I run by hand (htop, mc, kubectl, ...) — brew keeps
   them user-space and out of ansible's way.
 - Homebrew on Linux needs x86_64 or ARM64 with glibc (Tier 1 since brew 5.0).
-  Won't work in Termux (bionic libc) — use `pkg` there.
+  Won't work in Termux (bionic libc) — there the script uses `pkg` and the
+  `packages.android.pkg` list instead (see Termux above). Keep it in sync with
+  `packages.brews` when adding tools.
 - On Linux with glibc < 2.35 (Debian 11 and older) the script skips packages
   entirely: there are no usable bottles, brew builds the whole toolchain from
   source — that took down backup (1GB RAM) for an hour. Upgrade the OS first.
