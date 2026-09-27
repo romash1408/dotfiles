@@ -29,3 +29,16 @@ casks = []
 apt = ["tmux", "net-tools:ifconfig"]
 # Linux GUI apps (flatpak from flathub, "org.app.Id"), only when hasGUI
 flatpaks = []
+
+[packages.android]
+# Termux (chezmoi from `pkg` is built with GOOS=android, so .chezmoi.os is
+# "android", not "linux"). No Homebrew there, everything comes from pkg.
+# Mirror of packages.brews under Termux package names, minus what pkg doesn't
+# ship (herdr), plus tmux/net-tools that come from apt on regular Linux.
+# Plain package names: the install script checks `dpkg -s`, not binaries.
+pkg = [
+  "git", "curl", "wget", "vim", "htop", "jq",
+  "tree", "ncdu", "ripgrep", "fzf",
+  "mc", "kubectl", "helm",
+  "tmux", "net-tools", "openssh", "zsh",
+]

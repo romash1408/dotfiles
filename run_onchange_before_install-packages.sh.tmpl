@@ -1,9 +1,23 @@
 {{- if not .offline -}}
-#!/bin/bash
+{{ template "bash-shebang" . }}
 # Installs Homebrew (if missing) and all packages from .chezmoidata/packages.toml.
 # run_onchange: re-runs whenever the rendered package list below changes.
 set -e
 
+{{ if eq .chezmoi.os "android" -}}
+# Termux: Homebrew needs glibc, Android has bionic — everything comes from pkg.
+# dpkg -s instead of `command -v`: toybox in /system/bin shadows some names
+# (ifconfig, netstat), and we want the Termux package regardless.
+_missing=""
+for _p in {{ .packages.android.pkg | join " " }}; do
+  dpkg -s "$_p" >/dev/null 2>&1 || _missing="$_missing $_p"
+done
+if [ -n "$_missing" ]; then
+  echo "==> pkg install:$_missing"
+  pkg install -y $_missing
+fi
+echo "==> Packages done."
+{{ else -}}
 {{ if and (eq .chezmoi.os "linux") .packages.linux.apt -}}
 # apt packages first: installed even where brew is skipped (old glibc)
 _missing=""
@@ -73,4 +87,5 @@ flatpak "{{ . }}"
 {{ end -}}
 BREWFILE
 echo "==> Packages done."
+{{- end }}
 {{- end -}}
