@@ -17,7 +17,7 @@ brews = [
 # macOS-only brew formulae (no system tmux there to conflict with)
 brews = ["tmux"]
 # macOS GUI apps (brew casks)
-casks = []
+casks = ["reaper"]  # станция «клавиши», см. keys-station.toml
 
 [packages.linux]
 # System (apt) packages for Linux: client/server tools that must match the

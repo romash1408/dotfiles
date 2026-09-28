@@ -1,0 +1,59 @@
+# Станция «клавиши»: Reaper + sfizz (Salamander) + Vital.
+# На hp софт ставит ansible (~/projects/infra, роль keys-station); здесь —
+# пользовательские настройки Reaper (обе ОС) и установка на мак
+# (run_onchange_after_install-keys-station.sh.tmpl).
+# Раскладка клавиатуры — заметка «Раскладка Oxygen 49» в Obsidian
+# (Notes/Рома/homelab/music) и layout.toml в infra.
+
+[keys_station]
+# Привязки CC → действия Reaper (reaper-kb.ini, секция Main). Всё на канале 1.
+# soft = soft takeover: фейдер не дёргает громкость, пока не догонит текущую.
+# ID действий — встроенные команды Reaper, сверены через kbd_getTextFromCmd.
+kb = [
+  { cc = 20, cmd = 20, soft = true, what = "F1 → громкость дорожки 1 (Рояль)" },
+  { cc = 21, cmd = 28, soft = true, what = "F2 → громкость дорожки 2 (Пэд)" },
+  { cc = 22, cmd = 36, soft = true, what = "F3 → громкость дорожки 3" },
+  { cc = 23, cmd = 44, soft = true, what = "F4 → громкость дорожки 4" },
+  { cc = 24, cmd = 52, soft = true, what = "F5 → громкость дорожки 5" },
+  { cc = 25, cmd = 60, soft = true, what = "F6 → громкость дорожки 6" },
+  { cc = 26, cmd = 68, soft = true, what = "F7 → громкость дорожки 7" },
+  { cc = 27, cmd = 76, soft = true, what = "F8 → громкость дорожки 8" },
+  { cc = 28, cmd = 12, soft = true, what = "F9 → громкость мастера" },
+  # Кнопки — переключатели: клавиатура должна слать одно сообщение на нажатие
+  # (режим toggle), иначе переключение срабатывает и на отпускание.
+  { cc = 102, cmd = 22, soft = false, what = "B1 → mute дорожки 1" },
+  { cc = 103, cmd = 30, soft = false, what = "B2 → mute дорожки 2" },
+  { cc = 104, cmd = 38, soft = false, what = "B3 → mute дорожки 3" },
+  { cc = 105, cmd = 46, soft = false, what = "B4 → mute дорожки 4" },
+  { cc = 106, cmd = 54, soft = false, what = "B5 → mute дорожки 5" },
+  { cc = 107, cmd = 62, soft = false, what = "B6 → mute дорожки 6" },
+  { cc = 108, cmd = 70, soft = false, what = "B7 → mute дорожки 7" },
+  { cc = 109, cmd = 78, soft = false, what = "B8 → mute дорожки 8" },
+  { cc = 113, cmd = 1068, soft = false, what = "Loop → Transport: Toggle repeat" },
+  { cc = 116, cmd = 1016, soft = false, what = "Stop → Transport: Stop" },
+  { cc = 117, cmd = 1007, soft = false, what = "Play → Transport: Play" },
+  { cc = 118, cmd = 1013, soft = false, what = "Record → Transport: Record" },
+]
+
+# --- установка на мак (hp — ansible) ---
+# Версии и sha256 сверены 28.09.2026 по скачанным файлам.
+[keys_station.mac]
+cache = "Library/Caches/keys-station"
+sfizz_url = "https://github.com/sfztools/sfizz-ui/releases/download/1.2.3/sfizz-1.2.3-macos.pkg"
+sfizz_sha256 = "62c76af58bfec05ca6ef199befca7c2508e15a5e63bca076198d94f085c14da7"
+vital_version = "1.6.4"
+vital_product = "Vital (Early access)"
+vital_sha256 = "e60f6d3a290701e72c054e28cef89bd09e53b2a51fb6917117acc97333d107fa"
+vital_firebase_key = "AIzaSyBQ-uM8Ta1hyYRaru8kb7hfoKyvBjlRSyQ"
+vital_rbw_entry = "vital"
+vital_factory_url = "https://cdn.vital.audio/content/FactoryContent.vitalbank"
+vital_factory_sha256 = "cfd5c027f75ec25366cbd28f39fa95ed37bdeb60766ec431107c7767546c6064"
+# У Linux-сборки данные в ~/.local/share/vital (строка зашита в бинарь); на маке —
+# ~/Music/Vital по аналогии с открытыми исходниками (там «Vial»). Не проверено.
+vital_data = "Music/Vital"
+salamander_url = "https://freepats.zenvoid.org/Piano/SalamanderGrandPiano/SalamanderGrandPiano-SFZ+FLAC-V3+20200602.tar.gz"
+salamander_sha256 = "b7760e168494cf095344e217b0af013fc449ad033abbbdf1c65211cf11dc038b"
+salamander_sfz = "SalamanderGrandPiano-V3+20200602.sfz"
+samples = "Music/Samples"
+# Путь к SFZ в шаблоне одинаковый на всех машинах (sfizz хранит абсолютный путь)
+samples_link = "/opt/keys-station/samples"

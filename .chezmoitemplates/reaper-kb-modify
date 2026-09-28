@@ -1,0 +1,19 @@
+{{ template "bash-shebang" . }}
+# chezmoi modify_: reaper-kb.ini целиком не храним — Reaper сам дописывает туда
+# регистрации скриптов (SCR) и пользовательские сочетания. Заменяем только
+# MIDI-привязки на свои CC (.chezmoidata/keys-station.toml), остальное оставляем.
+#
+# Формат строки: KEY <статус> <номер|флаги> <действие> <секция>
+#   статус 176 = 0xB0 — CC на канале 1; флаг 1024 = soft takeover;
+#   секция 0 = Main. Проверено 28.09.2026: привязка через окно Actions
+#   записалась как «KEY 176 1044 20 0» (CC 20 + soft takeover → действие 20).
+awk -v managed="{{ range .keys_station.kb }}{{ .cc }} {{ end }}" '
+BEGIN { n = split(managed, list, " "); for (i = 1; i <= n; i++) mine[list[i]] = 1 }
+$1 == "KEY" && $2 == "176" && (($3 % 1024) in mine) { next }
+{ print }
+END {
+{{- range .keys_station.kb }}
+  print "KEY 176 {{ if .soft }}{{ add 1024 .cc }}{{ else }}{{ .cc }}{{ end }} {{ .cmd }} 0\t\t # keys-station: {{ .what }}"
+{{- end }}
+}
+'

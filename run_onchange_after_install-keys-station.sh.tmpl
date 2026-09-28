@@ -1,0 +1,103 @@
+{{- if and (eq .chezmoi.os "darwin") .hasGUI (not .offline) -}}
+{{ template "bash-shebang" . }}
+# Станция «клавиши» на маке: плагины и сэмплы для шаблона Reaper keys.RPP.
+# На hp то же самое ставит ansible (~/projects/infra, роль keys-station); версии
+# и хэши — .chezmoidata/keys-station.toml. Reaper — cask из packages.toml.
+# Ручные шаги и ссылки — заметка «Клавиши на маке» в Obsidian
+# (Notes/Рома/homelab/music).
+#
+# run_onchange: перезапускается при смене данных ниже.
+# {{ .keys_station.mac | toJson | sha256sum }}
+set -euo pipefail
+
+{{ with .keys_station.mac -}}
+CACHE="$HOME/{{ .cache }}"
+SAMPLES="$HOME/{{ .samples }}"
+VITAL_DATA="$HOME/{{ .vital_data }}"
+LINK="{{ .samples_link }}"
+{{- end }}
+mkdir -p "$CACHE"
+
+# Запас сверх самого скачивания: не забивать диск под ноль
+need_space() {  # каталог, байт
+  local avail
+  avail=$(( $(df -k "$1" | awk 'NR==2 {print $4}') * 1024 ))
+  if [ "$avail" -lt $(( $2 + 2 * 1024 * 1024 * 1024 )) ]; then
+    echo "==> keys-station: мало места в $1 ($((avail / 1024 / 1024)) МБ), нужно $(( $2 / 1024 / 1024 )) МБ + 2 ГБ запаса" >&2
+    exit 1
+  fi
+}
+
+fetch() {  # url, файл, sha256, примерный размер
+  if [ -f "$2" ] && echo "$3  $2" | shasum -a 256 -c - >/dev/null 2>&1; then return; fi
+  need_space "$(dirname "$2")" "$4"
+  echo "==> keys-station: качаю $(basename "$2")"
+  curl -fL --retry 5 -C - -o "$2" "$1" || curl -fL --retry 5 -o "$2" "$1"
+  echo "$3  $2" | shasum -a 256 -c - >/dev/null || { echo "sha256 не совпал: $2" >&2; rm -f "$2"; exit 1; }
+}
+
+{{ with .keys_station.mac -}}
+# --- sfizz (VST3/AU/LV2) ---
+if [ ! -d /Library/Audio/Plug-Ins/VST3/sfizz.vst3 ]; then
+  fetch "{{ .sfizz_url }}" "$CACHE/sfizz.pkg" "{{ .sfizz_sha256 }}" $((12 * 1024 * 1024))
+  echo "==> keys-station: ставлю sfizz (нужен пароль sudo)"
+  sudo installer -pkg "$CACHE/sfizz.pkg" -target /
+fi
+
+# --- Vital (CLAP/VST3/AU) — из кабинета account.vital.audio ---
+# Вход тем же способом, что и в ansible-роли: Firebase (публичный ключ сайта) →
+# idToken → POST /products → ссылка на .pkg. Учётка — rbw «{{ .vital_rbw_entry }}».
+VITAL_PKG="$CACHE/vital-{{ .vital_version }}.pkg"
+if [ ! -f "$CACHE/vital-{{ .vital_version }}.installed" ]; then
+  if ! echo "{{ .vital_sha256 }}  $VITAL_PKG" | shasum -a 256 -c - >/dev/null 2>&1; then
+    if command -v rbw >/dev/null && rbw unlocked >/dev/null 2>&1; then
+      need_space "$CACHE" $((50 * 1024 * 1024))
+      token=$(jq -n --arg e "$(rbw get --field username '{{ .vital_rbw_entry }}')" \
+                    --arg p "$(rbw get '{{ .vital_rbw_entry }}')" \
+                    '{email: $e, password: $p, returnSecureToken: true}' |
+        curl -fsS -H 'Content-Type: application/json' -d @- \
+          "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={{ .vital_firebase_key }}" |
+        jq -r .idToken)
+      link=$(jq -n --arg t "$token" '{idToken: $t}' |
+        curl -fsS -H 'Content-Type: application/json' -d @- https://account.vital.audio/products |
+        jq -r --arg p '{{ .vital_product }}' --arg v '{{ .vital_version }}' \
+          '.products[] | select(.name == $p) | .downloads[] | select((.name | test("pkg")) and .version == $v) | .link')
+      [ -n "$link" ] || { echo "==> keys-station: в кабинете нет Vital {{ .vital_version }} (.pkg) — обновить keys-station.toml" >&2; exit 1; }
+      curl -fsSL -o "$VITAL_PKG" "https://account.vital.audio$link"
+      echo "{{ .vital_sha256 }}  $VITAL_PKG" | shasum -a 256 -c - >/dev/null || { echo "sha256 Vital не совпал" >&2; rm -f "$VITAL_PKG"; exit 1; }
+    else
+      echo "==> keys-station: Vital пропущен — нет разблокированного rbw. Скачать руками" >&2
+      echo "    https://account.vital.audio (Vital {{ .vital_version }}, MacOS pkg) в $VITAL_PKG и повторить chezmoi apply" >&2
+    fi
+  fi
+  if [ -f "$VITAL_PKG" ]; then
+    echo "==> keys-station: ставлю Vital (нужен пароль sudo)"
+    sudo installer -pkg "$VITAL_PKG" -target /
+    touch "$CACHE/vital-{{ .vital_version }}.installed"
+  fi
+fi
+
+# --- фабричные пресеты Vital (открытый CDN; сам Vital качает их только после входа) ---
+if [ ! -d "$VITAL_DATA/Factory/Presets" ]; then
+  fetch "{{ .vital_factory_url }}" "$CACHE/FactoryContent.vitalbank" "{{ .vital_factory_sha256 }}" $((90 * 1024 * 1024))
+  mkdir -p "$VITAL_DATA"
+  unzip -q -o "$CACHE/FactoryContent.vitalbank" -d "$VITAL_DATA"
+fi
+
+# --- Salamander Grand Piano (SFZ+FLAC 48 кГц/24 бит, ~710 МБ) ---
+if [ ! -f "$SAMPLES/SalamanderGrandPiano/{{ .salamander_sfz }}" ]; then
+  fetch "{{ .salamander_url }}" "$CACHE/salamander.tar.gz" "{{ .salamander_sha256 }}" $((742 * 1024 * 1024))
+  mkdir -p "$SAMPLES/SalamanderGrandPiano"
+  need_space "$SAMPLES" $((800 * 1024 * 1024))
+  tar -xzf "$CACHE/salamander.tar.gz" -C "$SAMPLES/SalamanderGrandPiano" --strip-components=1
+fi
+
+# Тот же абсолютный путь к SFZ, что и на hp: sfizz хранит его в состоянии плагина
+if [ "$(readlink "$LINK" 2>/dev/null)" != "$SAMPLES" ]; then
+  echo "==> keys-station: $LINK -> $SAMPLES (нужен пароль sudo)"
+  sudo mkdir -p "$(dirname "$LINK")"
+  sudo ln -sfn "$SAMPLES" "$LINK"
+fi
+{{- end }}
+echo "==> keys-station: готово"
+{{ end -}}

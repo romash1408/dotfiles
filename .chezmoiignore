@@ -23,3 +23,18 @@ chezmoi-upload-offline.sh
 {{ if or (ne .chezmoi.os "linux") (not .herdrServer) }}
 .config/systemd/user/herdr.service
 {{ end }}
+
+{{/* Reaper (станция «клавиши», .chezmoidata/keys-station.toml) — только там, где есть GUI */}}
+{{ if not .hasGUI }}
+.config/REAPER
+Library/Application Support/REAPER
+{{ end }}
+{{ if ne .chezmoi.os "darwin" }}
+Library
+{{ end }}
+{{ if eq .chezmoi.os "darwin" }}
+# На маке конфиг Reaper живёт в ~/Library/Application Support/REAPER, а
+# ~/.config/REAPER — только хранилище шаблонов, на которое смотрит симлинк.
+.config/REAPER/reaper.ini
+.config/REAPER/reaper-kb.ini
+{{ end }}
