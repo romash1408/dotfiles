@@ -40,8 +40,8 @@ Host backup
 {{ if .work }}
 Host dev
   HostName dubiner-dev.vla.yp-c.yandex.net
-  RemoteForward 127.0.0.1:9222 127.0.0.1:9222 # ya bro debug
   RemoteForward 127.0.0.1:2226 127.0.0.1:2226 # xdg-open-svc
+  RemoteForward 127.0.0.1:9222 127.0.0.1:9222 # ya bro debug
 
 Host dev-mr
   HostName direct-dev-migration-runner.sas.yp-c.yandex.net
