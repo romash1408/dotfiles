@@ -1,0 +1,37 @@
+{{- if and .work .offline -}}
+#!/bin/bash
+
+# Prevent Herdr's client-side fallback from spawning a server outside the
+# user-systemd unit. The unit performs Arc mount preflight before restoring
+# native agent sessions.
+set -u
+
+readonly HERDR_BIN="$HOME/.local/bin/herdr"
+
+case "${1:-}" in
+    --help|-h|--version|-V|--default-config|completion|status)
+        exec "$HERDR_BIN" "$@"
+        ;;
+    server)
+        case "${2:-}" in
+            stop|reload-config)
+                exec "$HERDR_BIN" "$@"
+                ;;
+            *)
+                echo "On this machine Herdr server must run through herdr.service." >&2
+                echo "Use: systemctl --user start herdr.service" >&2
+                exit 2
+                ;;
+        esac
+        ;;
+esac
+
+if ! systemctl --user start herdr.service; then
+    echo "herdr.service failed to start; Herdr client autostart was blocked." >&2
+    echo "Check: systemctl --user status herdr.service" >&2
+    echo "Logs:  journalctl --user -u herdr.service" >&2
+    exit 1
+fi
+
+exec "$HERDR_BIN" "$@"
+{{- end }}

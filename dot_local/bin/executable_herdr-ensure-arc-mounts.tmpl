@@ -1,0 +1,84 @@
+{{- if and .work .offline -}}
+#!/bin/bash
+
+# Herdr восстанавливает native agent sessions сразу при старте сервера. После
+# reboot Arc/FUSE mount'ы могут ещё отсутствовать, поэтому сначала ремонтируем
+# все зарегистрированные arc-wt и проверяем cwd managed-сессий из истории.
+set -u
+
+readonly HISTORY_DIR="${HERDR_HISTORY_DIR:-$HOME/.config/herdr-history}"
+readonly ATTEMPTS=6
+readonly RETRY_DELAY_SECONDS=5
+
+validate_cwds() {
+    python3 - "$HISTORY_DIR" <<'PY'
+from pathlib import Path
+import subprocess
+import sys
+
+import yaml
+
+
+history_dir = Path(sys.argv[1])
+paths = {Path.home() / "arcadia"}
+
+if history_dir.is_dir():
+    for record_path in history_dir.glob("*.yaml"):
+        try:
+            record = yaml.safe_load(record_path.read_text(encoding="utf-8")) or {}
+        except Exception as error:
+            print(f"herdr arc preflight: cannot read {record_path}: {error}", file=sys.stderr)
+            raise SystemExit(1)
+
+        if record.get("lifecycle_state") not in {"active", "archiving"}:
+            continue
+        project_cwd = record.get("project_cwd")
+        if project_cwd:
+            paths.add(Path(project_cwd))
+
+failures = []
+for path in sorted(paths):
+    try:
+        result = subprocess.run(
+            ["arc", "root"],
+            cwd=path,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        failures.append(f"{path}: {error}")
+        continue
+
+    if result.returncode != 0:
+        detail = result.stderr.strip().splitlines()
+        failures.append(f"{path}: {detail[-1] if detail else 'arc root failed'}")
+
+if failures:
+    for failure in failures:
+        print(f"herdr arc preflight: unavailable: {failure}", file=sys.stderr)
+    raise SystemExit(1)
+
+print(f"herdr arc preflight: verified {len(paths)} Arcadia cwd(s)")
+PY
+}
+
+for attempt in $(seq 1 "$ATTEMPTS"); do
+    echo "herdr arc preflight: remount attempt $attempt/$ATTEMPTS"
+    # `arc-wt remount` may return non-zero when an individual mount is already
+    # present. The authoritative result is the per-cwd `arc root` check below.
+    ya tool arc-wt remount || true
+
+    if validate_cwds; then
+        exit 0
+    fi
+
+    if (( attempt < ATTEMPTS )); then
+        sleep "$RETRY_DELAY_SECONDS"
+    fi
+done
+
+echo "herdr arc preflight: Arcadia cwd(s) are still unavailable; refusing to start Herdr" >&2
+exit 1
+{{- end }}
