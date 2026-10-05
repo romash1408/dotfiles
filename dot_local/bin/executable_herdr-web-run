@@ -13,4 +13,6 @@ if [ -z "${SSH_AUTH_SOCK:-}" ]; then
   export SSH_AUTH_SOCK
 fi
 cd "$root/current"
-exec "$root/runtime/node_modules/.bin/bun" server/managed.ts
+HERDR_WEB_REVISION=$(git rev-parse HEAD)
+export HERDR_WEB_REVISION
+exec "$root/runtime/node_modules/.bin/bun" "$HOME/.config/herdr-web-ui/entry.ts"

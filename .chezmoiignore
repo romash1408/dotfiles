@@ -32,6 +32,7 @@ Library/LaunchAgents/local.herdr.plist
 {{ if or (ne .chezmoi.os "darwin") (not (get . "herdrWebUI")) }}
 Library/LaunchAgents/local.herdr-web-ui.plist
 .config/herdr-web-ui/install.json
+.config/herdr-web-ui/entry.ts
 .local/bin/herdr-web-run
 .local/bin/herdr-web-update
 {{ end }}
