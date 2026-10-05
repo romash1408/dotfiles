@@ -257,7 +257,9 @@ are in `~/.config/herdr-web-ui/install.json`. Source/builds are in
 `~/.local/share/herdr-web-ui/releases`, with `current` selecting a release and a
 private Bun runtime alongside. Persistent machine registrations and credentials
 stay in `~/.config/herdr-web-ui`; they are not copied between computers by chezmoi.
-App/bridge auto-updates are disabled. SSH secrets/unknown-host prompts must be
+The chezmoi-owned `entry.ts` starts the backend without the built-in app/herdr
+updaters, so browser buttons cannot bypass the explicit update process or restart
+herdr. Bridge auto-updates are disabled. SSH secrets/unknown-host prompts must be
 handled in Settings → Remote PCs; the command does not answer them automatically.
 The `herdr-web-dev` alias omits the ordinary dev alias's reverse port forwards.
 Logs are `~/Library/Logs/herdr.log` and `herdr-web-ui.log`. No web password/token is
