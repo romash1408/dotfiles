@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Read-only startup gate. Never remount, pull, change VPN, or repair worktrees.
+
+Checks native session cwd values, active herdr-history records and explicit paths.
+Arc prefixes remain known even when their FUSE mounts have disappeared. A local
+arc probe checks only current accessibility, not future network availability.
+"""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+def collect_cwds(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if (key == "cwd" or key.endswith("_cwd")) and isinstance(item, str) and item:
+                yield item
+            elif isinstance(item, (dict, list)):
+                yield from collect_cwds(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from collect_cwds(item)
+
+
+def main():
+    home = Path.home()
+    config = Path(os.environ.get("HERDR_ARC_PREFLIGHT_CONFIG", home / ".config/herdr/arc-preflight.json"))
+    if not config.exists():
+        raise RuntimeError("missing Arc preflight configuration: " + str(config))
+    settings = json.loads(config.read_text())
+    if not settings["enabled"]:
+        return
+    prefixes = [os.path.abspath(os.path.expanduser(p)) for p in settings["arc_prefixes"]]
+    paths = set(settings.get("required_paths", []))
+    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config")) / "herdr"
+    session_files = [config_dir / "session.json", *config_dir.glob("sessions/*/session.json")]
+    for record in session_files:
+        if record.exists():
+            paths.update(collect_cwds(json.loads(record.read_text())))
+    history = Path(os.environ.get("HERDR_HISTORY_DIR", home / ".config/herdr-history"))
+    records = list(history.glob("*.yaml"))
+    if records:
+        # Legacy history is YAML; never silently skip it when its parser is missing.
+        try:
+            import yaml
+        except ImportError:
+            raise RuntimeError("active history may be present but PyYAML is missing; install PyYAML before restoring")
+        for record in records:
+            value = yaml.safe_load(record.read_text()) or {}
+            if value.get("lifecycle_state") in ("active", "archiving") and value.get("project_cwd"):
+                paths.add(value["project_cwd"])
+    timeout = settings.get("timeout_seconds", 20)
+    if paths:
+        # Arc tracks custom mounts as well as ~/arcadia. Do not classify only by naming convention.
+        mounts = subprocess.run(["arc", "mount", "--list", "--json"], capture_output=True, text=True, timeout=timeout, check=True)
+        for mount in json.loads(mounts.stdout):
+            if isinstance(mount, dict) and isinstance(mount.get("mount"), str):
+                prefixes.append(os.path.abspath(mount["mount"]))
+    failures = []
+    arc_count = 0
+    for item in sorted(paths):
+        if not os.path.isabs(item):
+            failures.append("non-absolute saved cwd: " + item)
+            continue
+        # Check every cwd in a child: a hung FUSE stat/chdir must not hang the gate forever.
+        path = os.path.abspath(item)
+        arc = any(path == p or path.startswith(p + os.sep) for p in prefixes)
+        command = ["arc", "root"] if arc else [sys.executable, "-c", "import os; os.scandir('.').close()"]
+        try:
+            # Perform chdir AFTER exec, so subprocess' pre-exec error pipe cannot hang on FUSE.
+            probe = "import os,sys; os.chdir(sys.argv[1]); os.execvp(sys.argv[2],sys.argv[2:])"
+            result = subprocess.run([sys.executable, "-c", probe, path, *command], capture_output=True, text=True, timeout=timeout)
+            if result.returncode:
+                failures.append(path + ": " + (result.stderr.strip().splitlines() or ["probe failed"])[-1])
+            elif arc:
+                root = result.stdout.strip()
+                if not root or not os.path.isabs(root) or not (path == root or path.startswith(root.rstrip("/") + "/")):
+                    failures.append(path + ": unexpected arc root " + repr(root))
+                else:
+                    # Reading directory entries catches an unresponsive/stale mount beyond mere existence.
+                    subprocess.run([sys.executable, "-c", "import os,sys; next(os.scandir(sys.argv[1]),None)", path], check=True, capture_output=True, timeout=timeout)
+                    arc_count += 1
+        except (OSError, subprocess.SubprocessError) as exc:
+            failures.append(path + ": " + str(exc))
+    if failures:
+        raise RuntimeError("refusing session restore:\n" + "\n".join(failures) + "\nRestore VPN/mount access and retry; no automatic remount was attempted.")
+    print(f"herdr preflight: checked {len(paths)} saved cwd(s), {arc_count} Arc cwd(s)")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:
+        print("herdr preflight: " + str(exc), file=sys.stderr)
+        sys.exit(1)

@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""Explicit, versioned Linux tool delivery over SSH. Check is the default.
+
+No daemon restarts, sudo, shell-config edits, or implicit latest upgrades.
+apt/brew/pkg and native Claude installs are reported, never overwritten.
+Only the two catalogued agent npm packages support cross-platform bundling.
+"""
+import argparse
+import base64
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.request
+
+
+# This worker is sent to the target: no pre-installed tools-sync is required.
+WORKER = r'''
+import fcntl, hashlib, json, os, pathlib, platform, re, shutil, subprocess, sys, tarfile, tempfile, time
+P = pathlib.Path
+request = json.loads(sys.argv[1])
+home = P.home()
+root = home / ".local/share/tools-sync"
+def output(value): print(json.dumps(value))
+def run(args):
+    p = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+    return (p.stdout or p.stderr).strip().splitlines()[0] if (p.stdout or p.stderr).strip() else ""
+def atomic_json(path, value):
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(value, indent=2) + "\n")
+    os.replace(tmp, path)
+def link(path, target):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tools-sync-next")
+    if os.path.lexists(tmp): tmp.unlink()
+    tmp.symlink_to(target)
+    os.replace(tmp, path)
+def inside(path, parent):
+    try: path.relative_to(parent); return True
+    except ValueError: return False
+def extract(archive, dest):
+    # Reject traversal, escaping links, and special devices, including in npm archives.
+    with tarfile.open(archive) as t:
+        for m in t.getmembers():
+            target = (dest / m.name).resolve()
+            if not inside(target, dest.resolve()) or m.isdev() or m.isfifo():
+                raise RuntimeError("Unsafe archive member: " + m.name)
+            if m.issym() or m.islnk():
+                linked = (target.parent / m.linkname if m.issym() else dest / m.linkname).resolve()
+                if not inside(linked, dest.resolve()): raise RuntimeError("Unsafe archive link")
+        t.extractall(dest)
+if request["action"] == "inspect":
+    tools = {}
+    for name in request["tools"]:
+        path = shutil.which(name)
+        real = str(P(path).resolve()) if path else ""
+        provider = "missing"
+        if path:
+            provider = "existing"
+            if "/tools-sync/" in real: provider = "tools-sync"
+            elif "/linuxbrew/" in real or "/Cellar/" in real or path.startswith("/opt/homebrew/"): provider = "brew"
+            elif "/share/claude/versions/" in real: provider = "claude-native"
+            elif "/node_modules/" in real: provider = "npm"
+            elif path.startswith(("/usr/bin/", "/bin/")): provider = "system"
+            elif name == "herdr" and "/herdr-guard/" in path: provider = "guard"
+        tools[name] = {"path": path, "real": real, "provider": provider,
+                       "version": run([path, "--version"]) if path else None,
+                       "server_running": name == "herdr" and bool(path) and "status: running" in run([path,"status","server"])}
+    machine = platform.machine()
+    output({"os": platform.system().lower(), "arch": {"x86_64":"x64", "aarch64":"arm64"}.get(machine,machine),
+            "libc": platform.libc_ver(), "home": str(home), "node": shutil.which("node"),
+            "npm": shutil.which("npm"), "tools": tools})
+    sys.exit(0)
+root.mkdir(parents=True, exist_ok=True)
+lock = open(root / "lock", "w")
+fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+name = request["name"]
+if not re.fullmatch(r"[a-z0-9-]+", name): raise RuntimeError("Invalid tool name")
+if request["action"] == "prepare-npm":
+    if request["package"] not in ("@openai/codex", "@anthropic-ai/claude-code"):
+        raise RuntimeError("Unsupported npm recipe")
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", request["version"]):
+        raise RuntimeError("Invalid npm version")
+    downloads = root / "downloads"
+    downloads.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=downloads) as staging:
+        staging = P(staging)
+        (staging / "package.json").write_text(json.dumps({"private":True, "dependencies":{request["package"]:request["version"]}}))
+        p = subprocess.run(["npm", "install", "--prefix", str(staging), "--ignore-scripts", "--no-audit", "--no-fund", "--fetch-retries=0", "--fetch-timeout=20000"], capture_output=True, text=True, timeout=180)
+        if p.returncode: raise RuntimeError("Target npm registry cannot prepare package; use online fallback")
+        meta = json.loads((staging / "node_modules" / request["package"] / "package.json").read_text())
+        relative = meta["bin"] if isinstance(meta["bin"],str) else meta["bin"][name]
+        (staging / "bin").mkdir()
+        entry = staging / "bin" / name
+        import shlex
+        executable = request["package"] + '/' + relative
+        launcher = shlex.quote(request["node"]) + ' '
+        if name == "claude" and relative.endswith(".exe"):
+            arch = {"x86_64":"x64","aarch64":"arm64"}[platform.machine()]
+            executable = '@anthropic-ai/claude-code-linux-' + arch + '/claude'
+            binary = staging / 'node_modules' / executable
+            with binary.open('rb') as f:
+                if f.read(4) != b'\x7fELF': raise RuntimeError('Missing Linux Claude binary')
+            binary.chmod(0o755)
+            launcher = ''
+        entry.write_text('#!/bin/sh\nexport DISABLE_AUTOUPDATER=1\nroot=$(CDPATH= cd -- "$(dirname -- "$(readlink -f "$0")")/.." && pwd)\nexec ' + launcher + '"$root/node_modules/' + executable + '" "$@"\n')
+        entry.chmod(0o755)
+        archive = downloads / (name + "-" + request["version"] + ".tgz")
+        with tarfile.open(archive,"w:gz",dereference=False) as t:
+            for path in sorted(staging.iterdir()): t.add(path,arcname=path.name)
+    output({"path":str(archive), "sha256":hashlib.sha256(archive.read_bytes()).hexdigest()})
+    sys.exit(0)
+tool = root / name
+tool.mkdir(exist_ok=True)
+statefile = tool / "state.json"
+state = json.loads(statefile.read_text()) if statefile.exists() else {}
+if request["action"] == "rollback":
+    previous = state.get("previous")
+    if not previous: raise RuntimeError("No previous tools-sync version; original executable is retained in backup")
+    current = state["current"]
+    link(tool / "current", previous)
+    state.update(current=previous, previous=current)
+    atomic_json(statefile, state)
+    output({"rolled_back": name, "release": previous, "server_restarted": False})
+    sys.exit(0)
+version = request["version"]
+if not re.fullmatch(r"[0-9A-Za-z.+_-]+", version): raise RuntimeError("Invalid version")
+release = tool / (version + "-" + request["sha256"][:12])
+with tempfile.TemporaryDirectory(prefix=".stage-", dir=tool) as stage:
+    stage = P(stage)
+    archive = stage / "payload.tgz"
+    digest = hashlib.sha256()
+    source = sys.stdin.buffer
+    if request.get("payload_path"):
+        payload = P(request["payload_path"]).resolve()
+        if not inside(payload, (root / "downloads").resolve()): raise RuntimeError("Invalid local payload")
+        source = payload.open("rb")
+    with archive.open("wb") as f:
+        while True:
+            chunk = source.read(1024*1024)
+            if not chunk: break
+            digest.update(chunk); f.write(chunk)
+    if digest.hexdigest() != request["sha256"]: raise RuntimeError("Transfer checksum mismatch")
+    unpacked = stage / "release"
+    unpacked.mkdir()
+    extract(archive, unpacked)
+    entry = unpacked / "bin" / name
+    env = dict(os.environ, DISABLE_AUTOUPDATER="1")
+    p = subprocess.run([str(entry), "--version"], text=True, capture_output=True, timeout=45, env=env)
+    if p.returncode or version not in p.stdout + p.stderr:
+        raise RuntimeError("Candidate smoke test failed: " + p.stdout + p.stderr)
+    if not release.exists(): os.rename(unpacked, release)
+if request.get("stage_only"):
+    atomic_json(tool / "staged.json", {"release":str(release),"version":version})
+    output({"staged":name,"version":version,"release":str(release),"reason":"herdr server is running; stop it in a maintenance window and rerun --apply","server_restarted":False})
+    sys.exit(0)
+entrypoints = state.get("entrypoints")
+if not entrypoints:
+    dest = home / ".local/bin" / name
+    original = request.get("original")
+    # Preserve the herdr guard, updating only the executable it delegates to.
+    if original and "/herdr-guard/" not in original: dest = P(original)
+    if not inside(dest, home): raise RuntimeError("Refusing to replace a system package")
+    if os.path.lexists(dest):
+        if not request.get("adopt"): raise RuntimeError("Existing installation: use --adopt")
+        backup = tool / "original"
+        if not os.path.lexists(backup):
+            if dest.is_symlink(): backup.symlink_to(dest.resolve())
+            else: shutil.copy2(dest, backup)
+    entrypoints = [str(dest)]
+previous = state.get("current")
+link(tool / "current", release)
+for dest in entrypoints: link(P(dest), tool / "current/bin" / name)
+state.update(current=str(release), entrypoints=entrypoints, version=version)
+if previous and previous != str(release): state["previous"] = previous
+atomic_json(statefile, state)
+output({"installed":name, "version":version, "entrypoints":entrypoints, "server_restarted":False})
+'''
+
+
+def run(args, **kw):
+    return subprocess.run(args, check=True, **kw)
+
+
+def remote(host, request, payload=None):
+    code = "python3 -c " + shlex.quote(WORKER) + " " + shlex.quote(json.dumps(request))
+    # Login+interactive shell discovers the user's nvm and guard without copying credentials.
+    command = '"$SHELL" -lic ' + shlex.quote(code)
+    args = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes",
+            "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", host, command]
+    with open(payload, "rb") if payload else open(os.devnull, "rb") as source:
+        result = run(args, stdin=source, stdout=subprocess.PIPE, text=True)
+    # Some interactive shell startup files print banners; the worker's last line is JSON.
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def fetch_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "tools-sync", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=45) as r:
+        return json.load(r)
+
+
+def download(url, dest, expected):
+    if not url.startswith("https://") or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise ValueError("HTTPS and publisher SHA-256 required")
+    if dest.exists() and hashlib.sha256(dest.read_bytes()).hexdigest() == expected:
+        return
+    partial = dest.with_suffix(".part")
+    try:
+        run(["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "3",
+             "--connect-timeout", "20", "--max-time", "900", "--continue-at", "-", "--output", str(partial), url])
+        if hashlib.sha256(partial.read_bytes()).hexdigest() != expected:
+            raise RuntimeError("Publisher checksum mismatch")
+        partial.replace(dest)
+    finally:
+        partial.unlink(missing_ok=True)
+
+
+def make_bundle(name, spec, target, cache):
+    version = spec["version"]
+    platform = target["os"] + "-" + target["arch"]
+    recipe_hash = hashlib.sha256(json.dumps([2, spec, target.get("node")], sort_keys=True).encode()).hexdigest()[:12]
+    bundle = cache / (name + "-" + version + "-" + platform + "-" + recipe_hash + ".tgz")
+    checksum = bundle.with_suffix(".sha256")
+    if bundle.exists() and checksum.exists() and hashlib.sha256(bundle.read_bytes()).hexdigest() == checksum.read_text().strip():
+        return bundle
+    with tempfile.TemporaryDirectory(prefix="build-", dir=cache) as tmp:
+        root = Path(tmp)
+        (root / "bin").mkdir()
+        if spec["kind"] == "github":
+            asset_name = spec["assets"].get(platform)
+            if not asset_name: raise RuntimeError("No published recipe for " + platform)
+            asset_name = asset_name.format(version=version)
+            tag = spec["tag"].format(version=version)
+            release = fetch_json("https://api.github.com/repos/" + spec["repo"] + "/releases/tags/" + tag)
+            asset = next(a for a in release["assets"] if a["name"] == asset_name)
+            digest = asset.get("digest", "")
+            if not digest.startswith("sha256:"): raise RuntimeError("Release has no publisher checksum")
+            archive = cache / asset_name
+            download(asset["browser_download_url"], archive, digest[7:])
+            if spec["format"] == "binary": shutil.copyfile(archive, root / "bin" / name)
+            else:
+                with tarfile.open(archive) as t:
+                    members = [m for m in t.getmembers() if m.isfile() and Path(m.name).name == name]
+                    if len(members) != 1: raise RuntimeError("Ambiguous executable in release")
+                    with t.extractfile(members[0]) as src, (root / "bin" / name).open("wb") as dst:
+                        shutil.copyfileobj(src, dst)
+            (root / "bin" / name).chmod(0o755)
+        elif spec["kind"] == "npm":
+            if spec["package"] not in ("@openai/codex", "@anthropic-ai/claude-code"):
+                raise RuntimeError("Cross-platform npm bundling is restricted to supported agent packages")
+            if not target["node"]: raise RuntimeError("Install Node on target first")
+            (root / "package.json").write_text(json.dumps({"private": True, "dependencies": {spec["package"]: version}}))
+            # npm validates registry integrity; do not execute target-platform install scripts on Mac.
+            run(["npm", "install", "--prefix", str(root), "--ignore-scripts", "--no-audit", "--no-fund",
+                 "--os=linux", "--cpu=" + target["arch"], "--libc=glibc", "--registry=https://registry.npmjs.org/"], stdout=sys.stderr)
+            package = root / "node_modules" / spec["package"]
+            meta = json.loads((package / "package.json").read_text())
+            relative = meta["bin"] if isinstance(meta["bin"], str) else meta["bin"][name]
+            # Resolve our own release, not a moving current symlink, before launching Node.
+            wrapper = '#!/bin/sh\nexport DISABLE_AUTOUPDATER=1\n'
+            wrapper += 'root=$(CDPATH= cd -- "$(dirname -- "$(readlink -f "$0")")/.." && pwd)\n'
+            executable = spec["package"] + '/' + relative
+            launcher = shlex.quote(target["node"]) + ' '
+            if name == "claude" and relative.endswith(".exe"):
+                executable = '@anthropic-ai/claude-code-linux-' + target['arch'] + '/claude'
+                binary = root / 'node_modules' / executable
+                with binary.open('rb') as f:
+                    if f.read(4) != b'\x7fELF': raise RuntimeError('Missing Linux Claude binary')
+                binary.chmod(0o755)
+                launcher = ''
+            wrapper += 'exec ' + launcher + '"$root/node_modules/' + executable + '" "$@"\n'
+            (root / "bin" / name).write_text(wrapper)
+            (root / "bin" / name).chmod(0o755)
+        else: raise RuntimeError("Unknown recipe kind")
+        part = bundle.with_suffix(".part")
+        with tarfile.open(part, "w:gz", dereference=False) as t:
+            for path in sorted(root.iterdir()): t.add(path, arcname=path.name)
+        part.replace(bundle)
+    checksum.write_text(hashlib.sha256(bundle.read_bytes()).hexdigest() + "\n")
+    return bundle
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("host", help="SSH alias; no changes by default")
+    parser.add_argument("--group", action="append", choices=["common", "agents"])
+    parser.add_argument("--tool", action="append")
+    parser.add_argument("--catalog", type=Path, default=Path.home()/".config/tools-sync/catalog.json")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="inventory only (default)")
+    mode.add_argument("--apply", action="store_true", help="install pinned versions; never restart services")
+    mode.add_argument("--rollback", action="store_true", help="switch to previous managed release")
+    parser.add_argument("--adopt", action="store_true", help="adopt existing user/npm executable, retaining original")
+    parser.add_argument("--allow-downgrade", action="store_true")
+    args = parser.parse_args()
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@:-]*", args.host): parser.error("Invalid SSH destination")
+    catalog = json.loads(args.catalog.read_text())
+    names = list(dict.fromkeys((args.tool or []) + [n for g in (args.group or ([] if args.tool else ["agents"])) for n in catalog["groups"][g]]))
+    if any(n not in catalog["tools"] for n in names): parser.error("Unknown tool")
+    info = remote(args.host, {"action": "inspect", "tools": names})
+    print(args.host + ": " + info["os"] + "-" + info["arch"] + " libc=" + " ".join(info["libc"]), flush=True)
+    for name in names:
+        found = info["tools"][name]
+        print(f'{name:10} {found["version"] or "missing":30} → {catalog["tools"][name]["version"]:12} [{found["provider"]}] {found["path"] or ""}', flush=True)
+    if not (args.apply or args.rollback): return
+    if info["os"] != "linux" or info["arch"] not in ("x64", "arm64") or "com.termux" in info["home"]:
+        parser.error("Portable installation supports Linux x64/arm64 only; use existing brew/pkg on this host")
+    if any(catalog["tools"][n]["kind"] == "npm" for n in names) and info["libc"][0] != "glibc":
+        parser.error("Agent npm bundles currently require glibc Linux")
+    cache = Path.home()/".cache/tools-sync"
+    cache.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        found = info["tools"][name]
+        if args.rollback:
+            if name == "herdr" and found["server_running"]:
+                raise RuntimeError("Stop herdr in a maintenance window before rolling back its executable")
+            print(remote(args.host, {"action": "rollback", "name": name}), flush=True)
+            continue
+        if found["provider"] in ("brew", "system", "claude-native"):
+            print(name + ": keep existing package manager; use its explicit update command", flush=True)
+            continue
+        spec = catalog["tools"][name]
+        def numbers(s):
+            m = re.search(r"\d+\.\d+\.\d+", s or "")
+            return tuple(map(int, m.group().split("."))) if m else (0,0,0)
+        if numbers(found["version"]) > numbers(spec["version"]) and not args.allow_downgrade:
+            raise RuntimeError(name + ": refusing downgrade; update catalog or use --allow-downgrade")
+        if found["provider"] == "tools-sync" and numbers(found["version"]) == numbers(spec["version"]):
+            print(name + ": already at requested version", flush=True)
+            continue
+        if found["path"] and found["provider"] != "tools-sync" and not args.adopt:
+            raise RuntimeError(name + ": existing installation; inspect it and use --adopt explicitly")
+        if spec["kind"] == "npm" and info["npm"]:
+            try:
+                prepared = remote(args.host, {"action":"prepare-npm", "name":name, "package":spec["package"], "version":spec["version"], "node":info["node"]})
+            except subprocess.CalledProcessError:
+                print(name + ": mirror unavailable; preparing on this computer", flush=True)
+            else:
+                print(remote(args.host, {"action":"install", "name":name, "version":spec["version"], "sha256":prepared["sha256"], "payload_path":prepared["path"], "original":found["path"], "adopt":args.adopt}), flush=True)
+                continue
+        bundle = make_bundle(name, spec, info, cache)
+        result = remote(args.host, {"action":"install", "name":name, "version":spec["version"],
+                        "sha256":hashlib.sha256(bundle.read_bytes()).hexdigest(), "original":found["path"], "adopt":args.adopt,
+                        "stage_only":name == "herdr" and found["server_running"] and numbers(found["version"]) != numbers(spec["version"])}, bundle)
+        print(result, flush=True)
+    print("No server was restarted. Existing sessions keep running.", flush=True)
+
+
+if __name__ == "__main__":
+    try: main()
+    except subprocess.CalledProcessError as exc:
+        print("tools-sync: command failed (exit " + str(exc.returncode) + "); see diagnostic above", file=sys.stderr)
+        sys.exit(1)
+    except (RuntimeError, ValueError, OSError, subprocess.SubprocessError, StopIteration) as exc:
+        print("tools-sync: " + str(exc), file=sys.stderr)
+        sys.exit(1)

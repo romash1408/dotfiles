@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+root="$HOME/.local/share/herdr-web-ui"
+export PATH="$HOME/.local/lib/herdr-guard:$root/runtime/node-bin:$root/runtime/node_modules/.bin:/opt/homebrew/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export HOST=127.0.0.1 PORT=7317 HERDR_WEB_AUTO_UPDATE=0
+export HERDR_WEB_STATE_DIR="$HOME/.config/herdr-web-ui"
+export HERDR_WEB_BUNDLE_MANIFEST="$root/remote-bundles/manifest.json"
+export DISABLE_AUTOUPDATER=1
+unset HERDR_WEB_TOKEN
+# launchd normally supplies the login agent socket. Named work aliases use skotty's IdentityAgent.
+if [ -z "${SSH_AUTH_SOCK:-}" ]; then
+  SSH_AUTH_SOCK=$(launchctl getenv SSH_AUTH_SOCK)
+  export SSH_AUTH_SOCK
+fi
+cd "$root/current"
+exec "$root/runtime/node_modules/.bin/bun" server/managed.ts

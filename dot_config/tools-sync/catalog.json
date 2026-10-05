@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "groups": {"agents": ["herdr", "codex", "claude"], "common": ["rg"]},
+  "tools": {
+    "herdr": {
+      "version": "0.9.3", "kind": "github", "repo": "herdrdev/herdr", "tag": "v{version}",
+      "assets": {"linux-x64": "herdr-linux-x86_64", "linux-arm64": "herdr-linux-aarch64"},
+      "format": "binary", "command": "herdr"
+    },
+    "codex": {"version": "0.156.1", "kind": "npm", "package": "@openai/codex", "command": "codex"},
+    "claude": {"version": "2.1.235", "kind": "npm", "package": "@anthropic-ai/claude-code", "command": "claude"},
+    "rg": {
+      "version": "15.1.0", "kind": "github", "repo": "BurntSushi/ripgrep", "tag": "{version}",
+      "assets": {"linux-x64": "ripgrep-{version}-x86_64-unknown-linux-musl.tar.gz", "linux-arm64": "ripgrep-{version}-aarch64-unknown-linux-gnu.tar.gz"},
+      "format": "tar.gz", "command": "rg"
+    }
+  }
+}

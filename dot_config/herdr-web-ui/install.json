@@ -1,0 +1,11 @@
+{
+  "version": "0.3.49",
+  "commit": "32a3c85209ee7392bb9a478331b5c25f5275d226",
+  "bun": "1.4.2",
+  "remote_bundle": "16",
+  "remote_platforms": ["linux-x64"],
+  "machines": [
+    {"name": "dev · работа", "destination": "herdr-web-dev"},
+    {"name": "hp · личное", "destination": "herdr-web-hp"}
+  ]
+}

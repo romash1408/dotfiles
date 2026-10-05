@@ -69,16 +69,27 @@ else
   # Try a chezmoi version: download from GitHub (local machine has internet),
   # scp to remote, test. Returns 0 if the binary actually runs on the remote.
   try_chezmoi_ver() {
-    local ver=$1 tmp
+    local ver=$1 tmp candidate
     tmp=$(mktemp)
     curl -fsSL \
       "https://github.com/twpayne/chezmoi/releases/download/v${ver}/chezmoi_${ver}_${REMOTE_OS}_${REMOTE_ARCH}.tar.gz" \
       | tar -xzO chezmoi > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
     rsh "mkdir -p ~/.local/bin"
-    scp -q "$tmp" "$ALIAS:.local/bin/chezmoi"
-    rsh "chmod +x ~/.local/bin/chezmoi"
+    candidate=$(rsh "mktemp '$REMOTE_HOME/.local/bin/.chezmoi-candidate.XXXXXX'")
+    if ! scp -q "$tmp" "$ALIAS:$candidate"; then
+      rm -f "$tmp"
+      rsh "rm -f '$candidate'"
+      return 1
+    fi
     rm -f "$tmp"
-    rsh "chezmoi --version >/dev/null 2>&1"
+    # Test the exact candidate, not whichever chezmoi happens to win in PATH.
+    # An incompatible binary must never replace a usable installation.
+    if rsh "chmod +x '$candidate' && '$candidate' --version >/dev/null 2>&1"; then
+      rsh "mv '$candidate' '$REMOTE_HOME/.local/bin/chezmoi'"
+    else
+      rsh "rm -f '$candidate'"
+      return 1
+    fi
   }
 
   rsh "mkdir -p ~/.local/bin"

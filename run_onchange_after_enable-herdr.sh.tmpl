@@ -1,5 +1,9 @@
 {{ if and (eq .chezmoi.os "linux") .herdrServer -}}
 {{- $herdr := lookPath "herdr" | default "/home/linuxbrew/.linuxbrew/bin/herdr" -}}
+{{- $serverBin := $herdr -}}
+{{- if and .work .offline -}}
+{{- $serverBin = joinPath .chezmoi.homeDir ".local/bin/herdr" -}}
+{{- end -}}
 #!/bin/bash
 # Включает herdr.service. run_onchange: перезапускается только когда меняется
 # сам юнит — хеш шаблона ниже.
@@ -24,6 +28,11 @@ if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != "yes" ]; t
 fi
 # Намеренно без restart: он убил бы все панели вместе с запущенными агентами.
 # Изменившийся юнит подхватится при следующем входе.
+if [ ! -x "{{ $serverBin }}" ]; then
+  echo "==> herdr binary is not installed yet; unit enabled but not started."
+  echo "    Install it with tools-sync, then: systemctl --user start herdr.service"
+  exit 0
+fi
 if ! systemctl --user is-active --quiet herdr.service; then
   # Если сервер уже поднят клиентом вне systemd, он держит сокет: юнит упал бы
   # с "server is already running", а Restart=always загнал бы его в failed по

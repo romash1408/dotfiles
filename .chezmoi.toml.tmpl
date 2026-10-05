@@ -3,7 +3,11 @@
 {{- $hasGUI := promptBoolOnce . "hasGUI" "Does this machine have a GUI" -}}
 {{- /* Клиент herdr ставится везде (packages.toml), а сервер как systemd user
      unit нужен только там, где нужны переживающие логаут панели. */ -}}
-{{- $herdrServer := promptBoolOnce . "herdrServer" "Run herdr as a persistent systemd user service?" -}}
+{{- $herdrServer := promptBoolOnce . "herdrServer" "Run herdr as a persistent user service (systemd/launchd)?" -}}
+{{- $herdrWebUI := false -}}
+{{- if eq .chezmoi.os "darwin" -}}
+{{- $herdrWebUI = promptBoolOnce . "herdrWebUI" "Run the local herdr web UI on this Mac?" -}}
+{{- end -}}
 
 encryption = "age"
 umask = 0o022
@@ -13,6 +17,7 @@ umask = 0o022
   work = {{ $work }}
   hasGUI = {{ $hasGUI }}
   herdrServer = {{ $herdrServer }}
+  herdrWebUI = {{ $herdrWebUI }}
 
 # Repos synced to offline machines via chezmoi-upload-offline.sh.
 # Each entry: local (path relative to HOME on macOS), bare (name of bare repo,

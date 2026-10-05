@@ -1,4 +1,9 @@
 {{- $herdr := lookPath "herdr" | default "/home/linuxbrew/.linuxbrew/bin/herdr" -}}
+{{- if and .work .offline -}}
+{{- $herdr = joinPath .chezmoi.homeDir ".local/bin/herdr" -}}
+{{- else if contains "/herdr-guard/" $herdr -}}
+{{- $herdr = "/home/linuxbrew/.linuxbrew/bin/herdr" -}}
+{{- end -}}
 {{- $bin := dir $herdr -}}
 [Unit]
 Description=Herdr terminal workspace server (persistent AI-agent panes)
@@ -34,6 +39,12 @@ Type=exec
 # AdGuard). Выход всегда 0: без интернета herdr всё равно поднимется, через 60 с.
 # `$$` — экранирование для systemd, в шелл приезжает `$(seq 60)`.
 ExecStartPre=/bin/sh -c 'for i in $$(seq 60); do getent ahosts api.anthropic.com >/dev/null && exit 0; sleep 1; done; exit 0'
+{{ if .work -}}
+# Arc/FUSE may be absent or unhealthy on ANY work machine (VPN/network/mount).
+# Read-only gate: never resume agents in a fallback cwd, never remount automatically.
+ExecStartPre=%h/.local/bin/herdr-ensure-arc-mounts
+TimeoutStartSec=10min
+{{ end -}}
 ExecStart={{ $herdr }} server
 # Штатная остановка через сокет: сервер сначала сохраняет session.json,
 # и только потом гасит панели.
