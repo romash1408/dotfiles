@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Build the pinned Mac web UI; explicitly connect/update remote bridges.
+
+Default: show desired/current release. --apply: prepare and switch the app,
+restart ONLY its LaunchAgent. --connect: reconcile configured remote PCs using
+the app's own setup API. --update-bridges: also approve required bridge updates.
+Never answers SSH secret or unknown-host-key prompts automatically.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+BASE = "http://127.0.0.1:7317"
+
+
+def api(path, payload=None, method=None):
+    headers = {"Origin": BASE, "x-herdr-machine": "1"}
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode()
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(BASE + "/api/machines" + path, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = response.read()
+        return json.loads(body) if body else None
+
+
+def run(args, **kwargs):
+    return subprocess.run(args, check=True, **kwargs)
+
+
+def service_only_entry(source):
+    """Fail closed if upstream changes the reviewed startup branch."""
+    anchor = 'try { await bridgeIdentity(); } catch (error) {'
+    if source.count(anchor) != 1:
+        raise RuntimeError("Remote startup code changed; review Arc service-only patch before updating")
+    if 'chezmoi: service-only-v1' in source:
+        return source
+    return source.replace(anchor, anchor + '\n    // chezmoi: service-only-v1 — never restore agents outside the managed service.\n    throw new Error("herdr unavailable: start its managed service after Arc preflight", { cause: error });', 1)
+
+
+def prepare_bridges(config):
+    version = config["remote_bundle"]
+    directory = Path.home()/".local/share/herdr-web-ui/remote-bundles"
+    directory.mkdir(parents=True, exist_ok=True)
+    cache = Path.home()/".cache/herdr-web-bundles"
+    cache.mkdir(parents=True, exist_ok=True)
+    url = 'https://github.com/devswha/herdr-web-ui/releases/download/remote-v' + version + '/manifest.json'
+    with urllib.request.urlopen(url, timeout=45) as response: official = json.load(response)
+    if official["version"] != version: raise RuntimeError("Upstream bundle manifest version mismatch")
+    manifest = {"version":version,"assets":{}}
+    for platform in config["remote_platforms"]:
+        if platform not in ("linux-x64", "linux-arm64"):
+            raise RuntimeError("Service-only bridge preparation currently supports Linux only")
+        asset = official["assets"][platform]
+        archive = cache/('remote-v' + version + '-' + platform + '.tgz')
+        expected = asset["sha256"]
+        if not archive.exists() or hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
+            run(["curl","--fail","--location","--silent","--show-error","--retry","3","--connect-timeout","20","--max-time","900","--continue-at","-","--output",str(archive),asset["url"]])
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
+            raise RuntimeError("Official bridge SHA-256 mismatch")
+        name = 'remote-v' + version + '-' + platform + '-service-only-v1.tgz'
+        protected = directory/name
+        proof = directory/(name + '.sha256')
+        if not protected.exists() or not proof.exists() or hashlib.sha256(protected.read_bytes()).hexdigest() != proof.read_text().strip():
+            with tempfile.TemporaryDirectory(dir=directory) as temp:
+                stage = Path(temp)
+                with tarfile.open(archive) as tar:
+                    for member in tar.getmembers():
+                        path = (stage/member.name).resolve()
+                        if not path.is_relative_to(stage) or member.isdev() or member.isfifo():
+                            raise RuntimeError("Unsafe upstream archive")
+                        if member.issym() or member.islnk():
+                            # Upstream v16 contains absolute npm .bin links into its CI checkout.
+                            # Relocate only that known prefix; all other escaping links are rejected.
+                            ci_prefix = '/home/runner/work/herdr-web-ui/herdr-web-ui/node_modules/'
+                            if member.issym() and member.name.lstrip('./').startswith('node_modules/.bin/') and member.linkname.startswith(ci_prefix):
+                                member.linkname = os.path.relpath(stage/'node_modules'/member.linkname[len(ci_prefix):], path.parent)
+                            linked = (path.parent/member.linkname if member.issym() else stage/member.linkname).resolve()
+                            if not linked.is_relative_to(stage): raise RuntimeError("Unsafe upstream archive link")
+                    tar.extractall(stage)
+                entry = stage/'server/remote-entry.ts'
+                entry.write_text(service_only_entry(entry.read_text()))
+                (stage/'local-policy.json').write_text(json.dumps({"policy":"service-only-v1","upstream_sha256":expected}) + '\n')
+                partial = directory/(name + '.part')
+                with tarfile.open(partial,'w:gz',dereference=False) as tar:
+                    for item in sorted(stage.iterdir()): tar.add(item,arcname=item.name)
+                partial.replace(protected)
+            proof.write_text(hashlib.sha256(protected.read_bytes()).hexdigest() + '\n')
+        manifest["assets"][platform] = {"url":name,"sha256":proof.read_text().strip()}
+    temporary = directory/'manifest.next.json'
+    temporary.write_text(json.dumps(manifest,indent=2) + '\n')
+    temporary.replace(directory/'manifest.json')
+    print("Prepared service-only bridges: " + ', '.join(manifest['assets']),flush=True)
+
+
+def connect(config, update=False):
+    api("/settings", {"auto_update_bridges": False}, "PATCH")
+    current = api("")["machines"]
+    for target in config["machines"]:
+        existing = next((m for m in current if m.get("target", {}).get("destination") == target["destination"]), None)
+        if existing and existing["state"] == "connected":
+            print(target["name"] + ": connected", flush=True)
+            continue
+        if existing and existing.get("action_required") == "update_bridge" and not update:
+            raise RuntimeError(target["name"] + ": run --update-bridges to update the bridge explicitly")
+        payload = dict(target)
+        if existing:
+            payload["machine_id"] = existing["id"]
+            payload["update_remote"] = update
+        job = api("/setup", payload)
+        job = job.get("job", job)
+        deadline = time.monotonic() + 600
+        last = None
+        while time.monotonic() < deadline:
+            job = api("/setup/" + job["id"])
+            job = job.get("job", job)
+            if job["step"] != last:
+                print(target["name"] + ": " + job["step"], flush=True)
+                last = job["step"]
+            if job["phase"] == "connected": break
+            if job["phase"] in ("failed", "cancelled"):
+                raise RuntimeError(job.get("error") or job["phase"])
+            if job.get("challenge"):
+                print("Complete the SSH challenge in Settings → Remote PCs; job " + job["id"], flush=True)
+                raise RuntimeError("SSH authentication/trust needs attention; no secret was entered")
+            if job["phase"] == "approval":
+                operations = [item.replace("Start the loopback bridge and, only if absent, the herdr daemon", "Start the loopback bridge (herdr must already run through its service)") for item in job["installations"]]
+                print("Approved bridge operations: " + "; ".join(operations), flush=True)
+                api("/setup/" + job["id"], {"action": "approve"})
+            time.sleep(1)
+        else: raise RuntimeError("Remote setup timed out; inspect Settings → Remote PCs")
+
+
+def apply(config):
+    root = Path.home()/".local/share/herdr-web-ui"
+    root.mkdir(parents=True, exist_ok=True)
+    runtime = root/"runtime"
+    node = shutil.which("node")
+    if not node: raise RuntimeError("Node 18+ must already be installed")
+    runtime.mkdir(exist_ok=True)
+    # Isolated Bun; do not change the user's global npm or brew installation.
+    run(["npm", "install", "--prefix", str(runtime), "--no-audit", "--no-fund", "bun@" + config["bun"]])
+    (runtime/"node-bin").mkdir(exist_ok=True)
+    node_link = runtime/"node-bin/node"
+    if node_link.is_symlink(): node_link.unlink()
+    node_link.symlink_to(node)
+    bun = runtime/"node_modules/.bin/bun"
+    releases = root/"releases"
+    releases.mkdir(exist_ok=True)
+    release = releases/(config["version"] + "-" + config["commit"][:12])
+    if not release.exists():
+        with tempfile.TemporaryDirectory(prefix="build-", dir=releases) as stage:
+            stage = Path(stage)
+            run(["git", "init", "-q", str(stage)])
+            run(["git", "-C", str(stage), "remote", "add", "origin", "https://github.com/devswha/herdr-web-ui.git"])
+            run(["git", "-C", str(stage), "fetch", "--depth=1", "origin", config["commit"]])
+            run(["git", "-C", str(stage), "checkout", "-q", "--detach", "FETCH_HEAD"])
+            actual = subprocess.check_output(["git", "-C", str(stage), "rev-parse", "HEAD"], text=True).strip()
+            if actual != config["commit"]: raise RuntimeError("Source revision mismatch")
+            env = dict(os.environ, PATH=str(runtime/"node-bin") + ":" + os.environ["PATH"])
+            run([str(bun), "install", "--frozen-lockfile"], cwd=stage, env=env)
+            run([str(bun), "run", "build"], cwd=stage, env=env)
+            run([node, "-e", "require('@lydell/node-pty')"], cwd=stage)
+            machines = (stage/"shared/machines.ts").read_text()
+            if 'REMOTE_BUNDLE_VERSION = "' + config["remote_bundle"] + '"' not in machines:
+                raise RuntimeError("Pinned app and remote bundle versions disagree")
+            os.rename(stage, release)
+    prepare_bridges(config)
+    current = root/"current"
+    previous = str(current.resolve()) if current.exists() else None
+    temporary = root/"current.next"
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(release)
+    temporary.replace(current)
+    if previous and previous != str(release):
+        (root/"previous.json").write_text(json.dumps({"release": previous}) + "\n")
+    # Keep bridge updates explicit even on the very first launch.
+    state = Path.home()/".config/herdr-web-ui"
+    state.mkdir(parents=True, exist_ok=True)
+    (state/"machine-settings.json").write_text(json.dumps({"auto_update_bridges":False}) + "\n")
+    service = "gui/" + str(os.getuid()) + "/local.herdr-web-ui"
+    active = subprocess.run(["launchctl", "print", service], capture_output=True).returncode == 0
+    if active:
+        run(["launchctl", "kickstart", "-k", service])
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(BASE + "/api/health", timeout=2) as response:
+                    if json.load(response).get("ok"): break
+            except (OSError, ValueError): pass
+            time.sleep(1)
+        else:
+            if previous:
+                temporary.symlink_to(previous); temporary.replace(current)
+                run(["launchctl", "kickstart", "-k", service])
+            raise RuntimeError("Web UI health check failed; previous app restored when available")
+    print("Prepared " + str(release) + "; herdr itself was not restarted.")
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--apply", action="store_true")
+    p.add_argument("--connect", action="store_true")
+    p.add_argument("--update-bridges", action="store_true")
+    p.add_argument("--prepare-bridges", action="store_true")
+    args = p.parse_args()
+    config = json.loads((Path.home()/".config/herdr-web-ui/install.json").read_text())
+    print("Pinned web UI " + config["version"] + ", remote bundle " + config["remote_bundle"], flush=True)
+    if args.apply: apply(config)
+    elif args.prepare_bridges: prepare_bridges(config)
+    if args.connect or args.update_bridges: connect(config, args.update_bridges)
+    if not (args.apply or args.connect or args.update_bridges or args.prepare_bridges):
+        current = Path.home()/".local/share/herdr-web-ui/current"
+        print("Current: " + (str(current.resolve()) if current.exists() else "not installed"))
+        print("Use --apply to build/switch, --connect to add PCs, --update-bridges for explicit bridge upgrades.")
+
+
+if __name__ == "__main__":
+    try: main()
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        print("herdr-web-update: " + str(exc), file=sys.stderr)
+        sys.exit(1)

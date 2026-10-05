@@ -21,10 +21,10 @@ Host kg
   HostName 188.240.213.182
   User romash1408
 
-Match originalhost hp exec "ping -c1 -W1 192.168.86.1 >/dev/null 2>&1"
+Match originalhost hp,herdr-web-hp exec "ping -c1 -W1 192.168.86.1 >/dev/null 2>&1"
   HostName 192.168.86.11
 
-Host hp
+Host hp herdr-web-hp
   HostName hp.wg
   User romash1408
   # Адрес у hp меняется (дома LAN, снаружи mesh), а host key один и тот же.
@@ -38,6 +38,10 @@ Host backup
 {{ end }}
 
 {{ if .work }}
+# Web UI manages its own SSH forwards; do not inherit dev's browser/xdg RemoteForward.
+Host herdr-web-dev
+  HostName dubiner-dev.vla.yp-c.yandex.net
+
 Host dev
   HostName dubiner-dev.vla.yp-c.yandex.net
   RemoteForward 127.0.0.1:2226 127.0.0.1:2226 # xdg-open-svc
@@ -49,7 +53,7 @@ Host dev-mr
 Host prod-mr
   HostName direct-prod-migration-runner.klg.yp-c.yandex.net
 
-Host dev dev-mr prod-mr *.yandex.net
+Host dev herdr-web-dev dev-mr prod-mr *.yandex.net
   ForwardAgent ~/.skotty/sock/default.sock
   IdentityAgent ~/.skotty/sock/default.sock
   StrictHostKeyChecking no

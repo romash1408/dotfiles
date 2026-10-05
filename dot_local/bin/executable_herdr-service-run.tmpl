@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+# Services use the real binary, never the interactive autostart guard.
+export PATH="{{ .chezmoi.homeDir }}/.local/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+"$HOME/.local/bin/herdr-ensure-arc-mounts"
+{{ if eq .chezmoi.os "darwin" -}}
+exec /opt/homebrew/bin/herdr server
+{{ else if .offline -}}
+exec "$HOME/.local/bin/herdr" server
+{{ else -}}
+exec /home/linuxbrew/.linuxbrew/bin/herdr server
+{{ end -}}

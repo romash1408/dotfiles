@@ -181,6 +181,117 @@ To add a package: edit `.chezmoidata/packages.toml`, run `chezmoi apply`.
 
 ## Day-to-day
 
+### Explicit tool delivery to offline Linux machines
+
+The existing apt/Homebrew/Termux package installer is unchanged: offline hosts
+skip it, Termux uses `pkg`, and online Linux retains its glibc/Brew checks.
+`tools-sync` adds a separate, explicit user-space delivery path. It does not run
+from `chezmoi apply`, install system packages, or restart herdr/agents.
+
+```sh
+tools-sync dev --check --group agents --group common
+tools-sync dev --group common --apply
+tools-sync dev --group agents --apply --adopt
+tools-sync new-vm --tool herdr --apply
+tools-sync dev --tool codex --rollback
+```
+
+Versions and supported artifact recipes live in `.config/tools-sync/catalog.json`.
+Edit that file in chezmoi and explicitly run the command to update. The initial
+`common` group contains ripgrep; `agents` contains herdr, Codex CLI and Claude Code.
+This is an allowlisted artifact installer, not a portable replacement for apt.
+Python 3 and SSH are required on the target; the npm agents also need Node/npm.
+Linux x64/arm64 are supported; Termux and macOS keep their existing package managers.
+
+For npm agents the target's configured registry is tried first in a private
+prefix. If unavailable, the online machine prepares a Linux-specific npm bundle
+with install scripts disabled and transfers it by SSH. npm validates package
+integrity; GitHub binary releases require a publisher SHA-256 digest. Bundles are
+cached under `~/.cache/tools-sync` on the sending machine. Native dependencies
+are supported only for the catalogued agent packages, not arbitrary npm projects.
+Every candidate runs `--version` on the target before activation, so a glibc or
+CPU mismatch fails without replacing the current executable. Unlike chezmoi's
+bootstrap, pinned tools do not silently fall back to an older version.
+
+Target releases/state live in `~/.local/share/tools-sync/<tool>/`. `--adopt` is
+required before replacing an existing user/npm entrypoint; the original is saved
+there as `original`. Existing npm package trees remain untouched, and only their
+command symlinks are redirected. Subsequent versions use the recorded entrypoint.
+Do not also update an adopted command with `npm install -g`: use `tools-sync`.
+Brew, system packages and native Claude installations are reported and skipped;
+on hp herdr remains owned by Brew. Downgrades require `--allow-downgrade`.
+
+If herdr is running, a different version is only staged. Stop it explicitly in a
+maintenance window and repeat `--apply --adopt`, then start its service. Never
+restart it as a side effect of dotfile or web UI updates. `--rollback` switches
+between managed releases and likewise refuses to switch a running herdr server.
+After the first adoption, the original executable remains available at `original`.
+
+Bootstrap another offline machine with the existing script first (include
+`herdrServer=true` in its seed arguments when a persistent server is wanted), then run
+`tools-sync <alias> --group common --tool herdr --apply`. The chezmoi installer
+still tries compatible older releases, now testing a temporary candidate by its
+absolute path before moving it into place.
+After the first binary installation, explicitly start `herdr.service` on that
+machine. Bootstrap enables the unit but leaves it stopped while the binary is absent.
+
+### Mac web UI and remote PCs
+
+On the designated Mac set `herdrServer = true` and `herdrWebUI = true` in chezmoi
+data. `Library/LaunchAgents/local.herdr.plist` starts local herdr;
+`local.herdr-web-ui.plist` independently supervises the web UI on `127.0.0.1:7317`.
+These are login-user services: closing a terminal does not stop them, but logging
+out or sleeping/shutting down the Mac interrupts the central UI. Remote agents
+continue under their existing systemd services.
+
+```sh
+herdr-web-update                  # show the pinned and installed app
+herdr-web-update --apply          # build first; restart only the web UI if loaded
+herdr-web-update --prepare-bridges # prepare verified Linux runtimes without changing the app
+herdr-web-update --connect        # register configured PCs through the setup API
+herdr-web-update --update-bridges # explicitly approve incompatible remote bridges
+```
+
+The pinned app commit, Bun version, bridge version and desired machine aliases
+are in `~/.config/herdr-web-ui/install.json`. Source/builds are in
+`~/.local/share/herdr-web-ui/releases`, with `current` selecting a release and a
+private Bun runtime alongside. Persistent machine registrations and credentials
+stay in `~/.config/herdr-web-ui`; they are not copied between computers by chezmoi.
+App/bridge auto-updates are disabled. SSH secrets/unknown-host prompts must be
+handled in Settings → Remote PCs; the command does not answer them automatically.
+The `herdr-web-dev` alias omits the ordinary dev alias's reverse port forwards.
+Logs are `~/Library/Logs/herdr.log` and `herdr-web-ui.log`. No web password/token is
+configured while the UI is bound to localhost.
+
+Remote bundles are downloaded and checked against the publisher's SHA-256, then
+repacked with one reviewed `service-only-v1` policy: `remote-entry.ts` refuses to
+start a herdr daemon when its socket is unavailable. This prevents bypassing the
+Arc gate. The local bundle manifest has the new checksum, verified again on the
+target. Its location is explicitly supplied to the web server. An upstream change
+to the patched startup branch stops preparation and requires review; it never
+silently returns to upstream autostart. The bundled runtime is kept on each PC;
+the old standalone web-ui plugin is not needed.
+
+### Arc startup gate (all work machines, including Mac)
+
+`herdr-ensure-arc-mounts` checks saved native session cwd values and active legacy
+herdr-history YAML records before the service starts. YAML history requires
+PyYAML; if records exist and the parser is missing, startup fails closed.
+`~/.config/herdr/arc-preflight.json` selects known Arc prefixes and optional
+`required_paths`; registered custom mounts are also discovered with `arc mount
+--list --json`. Missing ordinary cwd values block restore too.
+
+No automatic remount, VPN change, `arc pull`, or fallback to `$HOME` is performed.
+Restore mount/network access and retry the service. `arc root` plus directory
+reads prove only current local accessibility: cached data can remain available
+without VPN, and this gate cannot guarantee that the network stays up later.
+Existing agents are never killed when a check fails. The interactive herdr guard
+routes startup through the service; service ExecStart must use the real binary,
+never the guard itself. Explicitly invoking an absolute vendor binary bypasses
+that shell guard.
+
+Safety regression tests: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`.
+
 | Task | Command |
 |------|---------|
 | Edit a managed file | `chezmoi edit ~/.zshrc` |

@@ -1,37 +1,32 @@
-{{- if and .work .offline -}}
-#!/bin/bash
-
-# Prevent Herdr's client-side fallback from spawning a server outside the
-# user-systemd unit. The unit performs Arc mount preflight before restoring
-# native agent sessions.
-set -u
-
-readonly HERDR_BIN="$HOME/.local/bin/herdr"
-
+#!/bin/sh
+set -eu
+{{ if eq .chezmoi.os "darwin" -}}
+real=/opt/homebrew/bin/herdr
+{{ else if .offline -}}
+real="$HOME/.local/bin/herdr"
+{{ else -}}
+real=/home/linuxbrew/.linuxbrew/bin/herdr
+{{ end -}}
 case "${1:-}" in
-    --help|-h|--version|-V|--default-config|completion|status)
-        exec "$HERDR_BIN" "$@"
-        ;;
-    server)
-        case "${2:-}" in
-            stop|reload-config)
-                exec "$HERDR_BIN" "$@"
-                ;;
-            *)
-                echo "On this machine Herdr server must run through herdr.service." >&2
-                echo "Use: systemctl --user start herdr.service" >&2
-                exit 2
-                ;;
-        esac
-        ;;
+  --help|-h|--version|-V|--default-config|completion|status) exec "$real" "$@" ;;
+  server)
+    case "${2:-}" in
+      stop|reload-config|agent-manifests|update-agent-manifests|reload-agent-manifests) exec "$real" "$@" ;;
+      *) echo "Start herdr through its managed service; Arc preflight is required." >&2; exit 2 ;;
+    esac ;;
 esac
-
-if ! systemctl --user start herdr.service; then
-    echo "herdr.service failed to start; Herdr client autostart was blocked." >&2
-    echo "Check: systemctl --user status herdr.service" >&2
-    echo "Logs:  journalctl --user -u herdr.service" >&2
-    exit 1
+{{ if eq .chezmoi.os "darwin" -}}
+if ! "$real" status server 2>/dev/null | grep -q 'status: running'; then
+  "$HOME/.local/bin/herdr-ensure-arc-mounts"
+  launchctl kickstart "gui/$(id -u)/local.herdr"
+  for attempt in 1 2 3 4 5; do
+    "$real" status server 2>/dev/null | grep -q 'status: running' && break
+    sleep 1
+  done
+  "$real" status server 2>/dev/null | grep -q 'status: running' || { echo "herdr service is not ready; refusing client autostart" >&2; exit 1; }
 fi
-
-exec "$HERDR_BIN" "$@"
-{{- end }}
+{{ else -}}
+systemctl --user start herdr.service
+"$real" status server 2>/dev/null | grep -q 'status: running' || exit 1
+{{ end -}}
+exec "$real" "$@"

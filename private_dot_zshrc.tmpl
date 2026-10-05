@@ -125,16 +125,12 @@ fi
 # Yandex
 
 {{ if .offline }}
-# Guard Herdr's client-side autostart: on this machine the server must go
-# through herdr.service, whose ExecStartPre mounts Arc worktrees first.
-export PATH="$HOME/.local/lib/herdr-guard:$PATH"
-
-# Fix ssh agent forwarding with tmux and Herdr.
+# Fix ssh agent forwarding with tmux and herdr.
 # ~/.ssh/rc repoints ~/.ssh/ssh_auth_sock at the live agent socket on every
 # new SSH login; .tmux.conf pins every pane's SSH_AUTH_SOCK to that stable
 # path and keeps `tmux attach` from overwriting the pin with the attaching
-# connection's own socket. Herdr marks its panes with HERDR_ENV=1, so they
-# use the same stable path.
+# connection's own socket. This export is just a fallback for panes started
+# before that tmux.conf fix was in effect.
 if [[ -n "$TMUX" || "${HERDR_ENV:-}" == 1 ]]; then
   export SSH_AUTH_SOCK="$HOME/.ssh/ssh_auth_sock"
 fi
@@ -180,4 +176,9 @@ export PATH=$(brew --prefix mysql@8.4)/bin:$PATH
 export PATH=$(brew --prefix python)/libexec/bin:$PATH
 export ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
 export CHROME_EXECUTABLE="/Applications/Arc.app/Contents/MacOS/Arc"
-{{- end -}}
+{{ end }}
+
+{{ if and .work .herdrServer (ne .chezmoi.os "android") -}}
+# Keep this after nvm/Homebrew PATH setup: client autostart must pass the service's Arc gate.
+export PATH="$HOME/.local/lib/herdr-guard:$PATH"
+{{ end -}}

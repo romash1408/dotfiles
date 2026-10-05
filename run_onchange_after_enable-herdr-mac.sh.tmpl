@@ -1,0 +1,23 @@
+{{ if and (eq .chezmoi.os "darwin") (or .herdrServer (get . "herdrWebUI")) -}}
+#!/bin/sh
+set -eu
+# Load new services; never restart an existing herdr and its agents on chezmoi apply.
+# herdr: {{ include "Library/LaunchAgents/local.herdr.plist.tmpl" | sha256sum }}
+# web: {{ include "Library/LaunchAgents/local.herdr-web-ui.plist.tmpl" | sha256sum }}
+mkdir -p "$HOME/Library/Logs"
+domain="gui/$(id -u)"
+{{ if .herdrServer -}}
+if ! launchctl print "$domain/local.herdr" >/dev/null 2>&1; then
+  launchctl bootstrap "$domain" "$HOME/Library/LaunchAgents/local.herdr.plist"
+fi
+{{ end -}}
+{{ if get . "herdrWebUI" -}}
+if [ -f "$HOME/.local/share/herdr-web-ui/current/server/managed.ts" ]; then
+  if ! launchctl print "$domain/local.herdr-web-ui" >/dev/null 2>&1; then
+    launchctl bootstrap "$domain" "$HOME/Library/LaunchAgents/local.herdr-web-ui.plist"
+  fi
+else
+  echo "herdr web UI is not built: run herdr-web-update --apply, then load its LaunchAgent."
+fi
+{{ end -}}
+{{ end -}}

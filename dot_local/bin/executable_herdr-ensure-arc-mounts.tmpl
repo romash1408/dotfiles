@@ -1,84 +1,97 @@
-{{- if and .work .offline -}}
-#!/bin/bash
+#!/usr/bin/env python3
+"""Read-only startup gate. Never remount, pull, change VPN, or repair worktrees.
 
-# Herdr восстанавливает native agent sessions сразу при старте сервера. После
-# reboot Arc/FUSE mount'ы могут ещё отсутствовать, поэтому сначала ремонтируем
-# все зарегистрированные arc-wt и проверяем cwd managed-сессий из истории.
-set -u
-
-readonly HISTORY_DIR="${HERDR_HISTORY_DIR:-$HOME/.config/herdr-history}"
-readonly ATTEMPTS=6
-readonly RETRY_DELAY_SECONDS=5
-
-validate_cwds() {
-    python3 - "$HISTORY_DIR" <<'PY'
+Checks native session cwd values, active herdr-history records and explicit paths.
+Arc prefixes remain known even when their FUSE mounts have disappeared. A local
+arc probe checks only current accessibility, not future network availability.
+"""
+import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
-import yaml
+
+def collect_cwds(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if (key == "cwd" or key.endswith("_cwd")) and isinstance(item, str) and item:
+                yield item
+            elif isinstance(item, (dict, list)):
+                yield from collect_cwds(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from collect_cwds(item)
 
 
-history_dir = Path(sys.argv[1])
-paths = {Path.home() / "arcadia"}
-
-if history_dir.is_dir():
-    for record_path in history_dir.glob("*.yaml"):
+def main():
+    home = Path.home()
+    config = Path(os.environ.get("HERDR_ARC_PREFLIGHT_CONFIG", home / ".config/herdr/arc-preflight.json"))
+    if not config.exists():
+        raise RuntimeError("missing Arc preflight configuration: " + str(config))
+    settings = json.loads(config.read_text())
+    if not settings["enabled"]:
+        return
+    prefixes = [os.path.abspath(os.path.expanduser(p)) for p in settings["arc_prefixes"]]
+    paths = set(settings.get("required_paths", []))
+    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config")) / "herdr"
+    session_files = [config_dir / "session.json", *config_dir.glob("sessions/*/session.json")]
+    for record in session_files:
+        if record.exists():
+            paths.update(collect_cwds(json.loads(record.read_text())))
+    history = Path(os.environ.get("HERDR_HISTORY_DIR", home / ".config/herdr-history"))
+    records = list(history.glob("*.yaml"))
+    if records:
+        # Legacy history is YAML; never silently skip it when its parser is missing.
         try:
-            record = yaml.safe_load(record_path.read_text(encoding="utf-8")) or {}
-        except Exception as error:
-            print(f"herdr arc preflight: cannot read {record_path}: {error}", file=sys.stderr)
-            raise SystemExit(1)
-
-        if record.get("lifecycle_state") not in {"active", "archiving"}:
+            import yaml
+        except ImportError:
+            raise RuntimeError("active history may be present but PyYAML is missing; install PyYAML before restoring")
+        for record in records:
+            value = yaml.safe_load(record.read_text()) or {}
+            if value.get("lifecycle_state") in ("active", "archiving") and value.get("project_cwd"):
+                paths.add(value["project_cwd"])
+    timeout = settings.get("timeout_seconds", 20)
+    if paths:
+        # Arc tracks custom mounts as well as ~/arcadia. Do not classify only by naming convention.
+        mounts = subprocess.run(["arc", "mount", "--list", "--json"], capture_output=True, text=True, timeout=timeout, check=True)
+        for mount in json.loads(mounts.stdout):
+            if isinstance(mount, dict) and isinstance(mount.get("mount"), str):
+                prefixes.append(os.path.abspath(mount["mount"]))
+    failures = []
+    arc_count = 0
+    for item in sorted(paths):
+        if not os.path.isabs(item):
+            failures.append("non-absolute saved cwd: " + item)
             continue
-        project_cwd = record.get("project_cwd")
-        if project_cwd:
-            paths.add(Path(project_cwd))
+        # Check every cwd in a child: a hung FUSE stat/chdir must not hang the gate forever.
+        path = os.path.abspath(item)
+        arc = any(path == p or path.startswith(p + os.sep) for p in prefixes)
+        command = ["arc", "root"] if arc else [sys.executable, "-c", "import os; os.scandir('.').close()"]
+        try:
+            # Perform chdir AFTER exec, so subprocess' pre-exec error pipe cannot hang on FUSE.
+            probe = "import os,sys; os.chdir(sys.argv[1]); os.execvp(sys.argv[2],sys.argv[2:])"
+            result = subprocess.run([sys.executable, "-c", probe, path, *command], capture_output=True, text=True, timeout=timeout)
+            if result.returncode:
+                failures.append(path + ": " + (result.stderr.strip().splitlines() or ["probe failed"])[-1])
+            elif arc:
+                root = result.stdout.strip()
+                if not root or not os.path.isabs(root) or not (path == root or path.startswith(root.rstrip("/") + "/")):
+                    failures.append(path + ": unexpected arc root " + repr(root))
+                else:
+                    # Reading directory entries catches an unresponsive/stale mount beyond mere existence.
+                    subprocess.run([sys.executable, "-c", "import os,sys; next(os.scandir(sys.argv[1]),None)", path], check=True, capture_output=True, timeout=timeout)
+                    arc_count += 1
+        except (OSError, subprocess.SubprocessError) as exc:
+            failures.append(path + ": " + str(exc))
+    if failures:
+        raise RuntimeError("refusing session restore:\n" + "\n".join(failures) + "\nRestore VPN/mount access and retry; no automatic remount was attempted.")
+    print(f"herdr preflight: checked {len(paths)} saved cwd(s), {arc_count} Arc cwd(s)")
 
-failures = []
-for path in sorted(paths):
+
+if __name__ == "__main__":
     try:
-        result = subprocess.run(
-            ["arc", "root"],
-            cwd=path,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=20,
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        failures.append(f"{path}: {error}")
-        continue
-
-    if result.returncode != 0:
-        detail = result.stderr.strip().splitlines()
-        failures.append(f"{path}: {detail[-1] if detail else 'arc root failed'}")
-
-if failures:
-    for failure in failures:
-        print(f"herdr arc preflight: unavailable: {failure}", file=sys.stderr)
-    raise SystemExit(1)
-
-print(f"herdr arc preflight: verified {len(paths)} Arcadia cwd(s)")
-PY
-}
-
-for attempt in $(seq 1 "$ATTEMPTS"); do
-    echo "herdr arc preflight: remount attempt $attempt/$ATTEMPTS"
-    # `arc-wt remount` may return non-zero when an individual mount is already
-    # present. The authoritative result is the per-cwd `arc root` check below.
-    ya tool arc-wt remount || true
-
-    if validate_cwds; then
-        exit 0
-    fi
-
-    if (( attempt < ATTEMPTS )); then
-        sleep "$RETRY_DELAY_SECONDS"
-    fi
-done
-
-echo "herdr arc preflight: Arcadia cwd(s) are still unavailable; refusing to start Herdr" >&2
-exit 1
-{{- end }}
+        main()
+    except Exception as exc:
+        print("herdr preflight: " + str(exc), file=sys.stderr)
+        sys.exit(1)
