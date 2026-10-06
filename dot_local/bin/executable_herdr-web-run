@@ -6,6 +6,10 @@ export HOST=127.0.0.1 PORT=7317 HERDR_WEB_AUTO_UPDATE=0
 export HERDR_WEB_STATE_DIR="$HOME/.config/herdr-web-ui"
 export HERDR_WEB_BUNDLE_MANIFEST="$root/remote-bundles/manifest.json"
 export DISABLE_AUTOUPDATER=1
+# launchd does not source .zshrc, where terminal clients get the corporate CA.
+if [ -f "$HOME/.ssl/certs/YandexInternalRootCA.pem" ]; then
+  export NODE_EXTRA_CA_CERTS="$HOME/.ssl/certs/YandexInternalRootCA.pem"
+fi
 unset HERDR_WEB_TOKEN
 # launchd normally supplies the login agent socket. Named work aliases use skotty's IdentityAgent.
 if [ -z "${SSH_AUTH_SOCK:-}" ]; then
