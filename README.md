@@ -334,3 +334,20 @@ Add one stanza to `.chezmoi.toml.tmpl`:
 | `work` | Work machine (Yandex aliases, arc, etc.) | manual prompt |
 | `hasGUI` | Machine has a graphical interface | manual prompt |
 | `offline` | No internet (`*.yp-c.yandex.net`) | **auto** from hostname |
+
+## dev disaster recovery on the work Mac
+
+`dev-backup run` pulls agent histories/configuration, SQLite online snapshots,
+and portable Arc worktree exports over SSH into encrypted restic snapshots at
+`~/Backups/dev/repository`. Calendar LaunchAgent `local.dev-backup` runs at
+minutes 0 and 30, on login, and catches missed calendar events after waking.
+`local.dev-backup-archive` additionally saves physical Arc objects/refs and old
+local projects daily. Neither job restarts Herdr or changes agents' branches.
+
+Use `dev-backup status`, `dev-backup snapshots`, or
+`dev-backup restore --target ~/dev-recovery` (a new directory). Read
+[`RECOVERY.md`](dot_local/share/dev-backup/RECOVERY.md) for migrating Linux paths,
+recovering local changes, and resuming agents on macOS. The repository password
+is in `~/.config/dev-backup/password` (600), outside git and outside dev.
+`chezmoi apply` only loads backup jobs after the repository/key are initialized;
+it does not interrupt existing jobs. Tests: `python3 -m unittest discover -s tests -p test_dev_backup.py`.

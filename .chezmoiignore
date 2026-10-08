@@ -6,6 +6,14 @@ tests
 .zshenv
 {{ end }}
 
+{{ if not (and .work (eq .chezmoi.os "darwin")) }}
+.local/bin/dev-backup
+.local/libexec/dev-backup
+.local/share/dev-backup
+Library/LaunchAgents/local.dev-backup.plist
+Library/LaunchAgents/local.dev-backup-archive.plist
+{{ end }}
+
 {{ if ne .chezmoi.os "darwin" }}
 .docker/contexts/meta/2d89b732b01a00a2d1675ed3cee9fd0f965daadf90603c989dd3afd4569c6896
 {{ end }}
