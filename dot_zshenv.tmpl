@@ -1,0 +1,14 @@
+{{ if and (eq .chezmoi.os "linux") (not .offline) -}}
+# SSH commands use non-interactive zsh and do not read .zshrc.
+# Keep package discovery available without loading Oh My Zsh or running brew.
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+  case ":$PATH:" in
+    *":/home/linuxbrew/.linuxbrew/bin:"*) ;;
+    *) export PATH="$PATH:/home/linuxbrew/.linuxbrew/bin" ;;
+  esac
+fi
+{{ end -}}
