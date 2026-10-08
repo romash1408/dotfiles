@@ -30,6 +30,7 @@ EXCLUDES = ['*.sock', '*.sock.*', '*.lock', 'LOCK', 'LOCK_client', 'lock', '*-wa
             '/.codex/plugins/marketplaces/', '/.codex/.tmp/', '/.codex/tmp/',
             '/.codex/thread-writer-locks/', '/.codex/shell_snapshots/',
             '/.claude/debug/', '/.claude/telemetry/', '/.claude/statsig/',
+            '/.mcp/logs/queue/',
             '/.local/state/ci-check/', '/.local/share/opencode/log/',
             '/.local/share/opencode/snapshot/', '/.local/share/tools-sync/downloads/',
             '/.local/share/tools-sync/backups/', '/.config/herdr-web-ui/',

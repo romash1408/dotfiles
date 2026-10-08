@@ -1,9 +1,25 @@
 # Восстановление dev на макбуке
 
 Бекап находится в `~/Backups/dev/repository` (restic, шифрование и дедупликация).
-Ключ: `~/.config/dev-backup/password`, права 600. Он не хранится в git/chezmoi.
-Не терять этот файл: без него расшифровать repository нельзя. При переносе
-бекапа на другой диск сохранить ключ отдельно. На самом dev этого ключа нет.
+Ключ сохранён в Bitwarden/rbw в записи **`dev-backup-restic`**.
+Локальная копия для автоматического запуска: `~/.config/dev-backup/password`,
+права 600. Ключ не хранится в git/chezmoi, Obsidian или на самом dev.
+Без ключа расшифровать repository нельзя. При переносе бекапа на другой диск
+сохранить доступ к Bitwarden отдельно; пароль мастер-хранилища тоже потребуется.
+
+Если локальный файл ключа утрачен, восстановить его из rbw:
+
+```sh
+rbw unlock
+umask 077
+mkdir -p ~/.config/dev-backup
+rbw get dev-backup-restic > ~/.config/dev-backup/password.recovered && \
+  mv ~/.config/dev-backup/password.recovered ~/.config/dev-backup/password
+chmod 600 ~/.config/dev-backup/password
+```
+
+Этот ключ относится к существующему repository. Не генерировать вместо него
+новый пароль: новый пароль не расшифрует старые снимки.
 
 ## Проверить и извлечь
 
@@ -144,6 +160,8 @@ SQLite согласованы по отдельности online backup API. Р�
 ошибки помечаются, а не выдаются за успешное полное восстановление.
 
 Не копируются временные CI-логи/артефакты, node_modules, скачанные дистрибутивы,
-Arc FUSE tree/trunk, runtime sockets/locks и shell snapshots с окружением.
+Arc FUSE tree/trunk, runtime sockets/locks, временная очередь MCP logs/queue
+и shell snapshots с окружением. Очередь меняется во время доставки логов;
+конфиги MCP и остальные файлы `.mcp` сохраняются.
 Исходные ключи и секреты внутри бекапа — приватные данные: staging и repository
 лежат в папке с правами 700; repository дополнительно зашифрован restic.
