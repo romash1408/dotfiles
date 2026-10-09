@@ -21,10 +21,10 @@ Host kg
   HostName 188.240.213.182
   User romash1408
 
-Match originalhost hp,herdr-web-hp exec "ping -c1 -W1 192.168.86.1 >/dev/null 2>&1"
+Match originalhost hp exec "ping -c1 -W1 192.168.86.1 >/dev/null 2>&1"
   HostName 192.168.86.11
 
-Host hp herdr-web-hp
+Host hp
   HostName hp.wg
   User romash1408
   # Адрес у hp меняется (дома LAN, снаружи mesh), а host key один и тот же.
@@ -39,9 +39,6 @@ Host backup
 
 {{ if .work }}
 # Persistent agent/browser forwards belong to local.dev-link on the work Mac.
-Host herdr-web-dev
-  HostName dubiner-dev.vla.yp-c.yandex.net
-
 Host dev
   HostName dubiner-dev.vla.yp-c.yandex.net
 
@@ -51,13 +48,13 @@ Host dev-mr
 Host prod-mr
   HostName direct-prod-migration-runner.klg.yp-c.yandex.net
 
-Host dev herdr-web-dev
+Host dev
   ForwardAgent no
 
 Host dev-mr prod-mr *.yandex.net
   ForwardAgent ~/.skotty/sock/default.sock
 
-Host dev herdr-web-dev dev-mr prod-mr *.yandex.net
+Host dev dev-mr prod-mr *.yandex.net
   IdentityAgent ~/.skotty/sock/default.sock
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null

@@ -5,7 +5,7 @@
   "remote_bundle": "16",
   "remote_platforms": ["linux-x64"],
   "machines": [
-    {"name": "dev · работа", "destination": "herdr-web-dev"},
-    {"name": "hp · личное", "destination": "herdr-web-hp"}
+    {"name": "dev · работа", "destination": "dev"},
+    {"name": "hp · личное", "destination": "hp"}
   ]
 }

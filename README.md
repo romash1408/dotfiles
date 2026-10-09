@@ -261,7 +261,7 @@ The chezmoi-owned `entry.ts` starts the backend without the built-in app/herdr
 updaters, so browser buttons cannot bypass the explicit update process or restart
 herdr. Bridge auto-updates are disabled. SSH secrets/unknown-host prompts must be
 handled in Settings → Remote PCs; the command does not answer them automatically.
-Both `dev` and `herdr-web-dev` omit agent and reverse port forwarding. The
+The `dev` alias omits agent and reverse port forwarding. The
 dedicated work-Mac service below owns them; `IdentityAgent` still uses Skotty for
 SSH authentication. `dev-mr`, `prod-mr` and `*.yandex.net` retain agent forwarding.
 Logs are `~/Library/Logs/herdr.log` and `herdr-web-ui.log`. No web password/token is
