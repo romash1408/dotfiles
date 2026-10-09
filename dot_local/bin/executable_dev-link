@@ -1,0 +1,146 @@
+#!/usr/bin/python3
+"""Keep the work Mac's Skotty and browser ports available on dev."""
+import datetime
+import os
+from pathlib import Path
+import selectors
+import shlex
+import signal
+import socket
+import subprocess
+import time
+
+READY = b'DEV_LINK_READY\n'
+# This command is the only session on its non-multiplexed SSH connection. If
+# heartbeats cease, release that connection's forwards even during a VPN outage.
+# No server-wide sshd changes and no termination of unrelated SSH sessions.
+REMOTE_PY = '''import os, pathlib, select, signal, stat, sys
+parent = os.getppid()
+socket = os.environ.get('SSH_AUTH_SOCK', '')
+if not socket or not stat.S_ISSOCK(os.stat(socket).st_mode):
+    raise SystemExit('forwarded agent socket is missing')
+stable = pathlib.Path.home()/'.ssh/ssh_auth_sock'
+temporary = stable.with_name(stable.name+'.dev-link-'+str(os.getpid()))
+temporary.symlink_to(socket)
+temporary.replace(stable)
+print('DEV_LINK_READY', flush=True)
+while select.select([0], [], [], 12)[0] and os.read(0, 4096):
+    pass
+# exec ensures parent is the dedicated sshd session, rather than a shell.
+if os.getppid() == parent:
+    proc = pathlib.Path('/proc')/str(parent)
+    if proc.stat().st_uid == os.getuid() and proc.joinpath('comm').read_text().strip() in ('sshd', 'sshd-session'):
+        os.kill(parent, signal.SIGTERM)
+'''
+REMOTE = 'exec python3 -c ' + shlex.quote(REMOTE_PY)
+
+
+def command():
+    agent = str(Path.home() / '.skotty/sock/default.sock')
+    return ['/usr/bin/ssh', '-T',
+            '-o', 'BatchMode=yes', '-o', 'ConnectionAttempts=1',
+            '-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=3',
+            '-o', 'ServerAliveCountMax=2', '-o', 'ExitOnForwardFailure=yes',
+            '-o', 'ControlMaster=no', '-o', 'ControlPath=none',
+            '-o', 'ControlPersist=no', '-o', 'ForwardX11=no',
+            '-o', 'PermitLocalCommand=no', '-o', 'LogLevel=ERROR',
+            '-o', 'IdentityAgent=' + agent, '-o', 'ForwardAgent=' + agent,
+            '-R', '127.0.0.1:2226:127.0.0.1:2226',
+            '-R', '127.0.0.1:9222:127.0.0.1:9222', 'dev', REMOTE]
+
+
+def terminate(proc):
+    if proc.poll() is None:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=2)
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        stream.close()
+
+
+class Supervisor:
+    def __init__(self, retry=2, setup_timeout=12):
+        self.stopping = False
+        self.retry = retry
+        self.setup_timeout = setup_timeout
+        self.last_log = None
+        self.logged_at = 0
+
+    def log(self, message):
+        now = time.monotonic()
+        if message != self.last_log or now - self.logged_at >= 60:
+            stamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            print(stamp, message, flush=True)
+            self.last_log, self.logged_at = message, now
+
+    def stop(self, *_):
+        self.stopping = True
+
+    def connection(self, argv):
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, start_new_session=True)
+        ready, output, errors = False, b'', b''
+        deadline = time.monotonic() + self.setup_timeout
+        heartbeat_at = 0
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(proc.stdout, selectors.EVENT_READ, 'stdout')
+                selector.register(proc.stderr, selectors.EVENT_READ, 'stderr')
+                while not self.stopping and proc.poll() is None:
+                    if not ready and time.monotonic() >= deadline:
+                        return 'setup timed out (DNS/auth/forwards); retrying'
+                    for key, _ in selector.select(0.2):
+                        data = os.read(key.fileobj.fileno(), 4096)
+                        if not data:
+                            selector.unregister(key.fileobj)
+                        elif key.data == 'stderr':
+                            errors = (errors + data)[-4096:]
+                        else:
+                            output = (output + data)[-4096:]
+                            if not ready and READY in output:
+                                ready = True
+                                self.log('connected: Skotty, 2226, 9222')
+                    if ready and time.monotonic() >= heartbeat_at:
+                        try:
+                            proc.stdin.write(b'ping\n')
+                            proc.stdin.flush()
+                        except BrokenPipeError:
+                            return 'heartbeat pipe closed; retrying'
+                        heartbeat_at = time.monotonic() + 2
+                if self.stopping:
+                    return 'stopped'
+                # Drain stderr after exit so a fast failed login retains its diagnosis.
+                errors = (errors + proc.stderr.read())[-4096:]
+                detail = errors.decode(errors='replace').strip().replace('\n', ' | ')
+                return 'disconnected: ' + (detail or 'SSH exit ' + str(proc.returncode))
+        finally:
+            terminate(proc)
+
+    def run(self):
+        agent = Path.home() / '.skotty/sock/default.sock'
+        while not self.stopping:
+            try:
+                # Skotty may start later than this login LaunchAgent.
+                with socket.socket(socket.AF_UNIX) as probe:
+                    probe.settimeout(1)
+                    probe.connect(str(agent))
+                result = self.connection(command())
+            except OSError as exc:
+                result = 'waiting for Skotty/SSH: ' + str(exc)
+            self.log(result)
+            until = time.monotonic() + self.retry
+            while not self.stopping and time.monotonic() < until:
+                time.sleep(0.1)
+
+
+if __name__ == '__main__':
+    supervisor = Supervisor()
+    signal.signal(signal.SIGTERM, supervisor.stop)
+    signal.signal(signal.SIGINT, supervisor.stop)
+    supervisor.run()

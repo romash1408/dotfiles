@@ -261,9 +261,48 @@ The chezmoi-owned `entry.ts` starts the backend without the built-in app/herdr
 updaters, so browser buttons cannot bypass the explicit update process or restart
 herdr. Bridge auto-updates are disabled. SSH secrets/unknown-host prompts must be
 handled in Settings → Remote PCs; the command does not answer them automatically.
-The `herdr-web-dev` alias omits the ordinary dev alias's reverse port forwards.
+Both `dev` and `herdr-web-dev` omit agent and reverse port forwarding. The
+dedicated work-Mac service below owns them; `IdentityAgent` still uses Skotty for
+SSH authentication. `dev-mr`, `prod-mr` and `*.yandex.net` retain agent forwarding.
 Logs are `~/Library/Logs/herdr.log` and `herdr-web-ui.log`. No web password/token is
 configured while the UI is bound to localhost.
+
+### Persistent work-Mac connection to dev
+
+On a work Mac, `chezmoi apply` installs and starts `local.dev-link`. Its runner is
+`~/.local/bin/dev-link`, and its launchd definition is
+`~/Library/LaunchAgents/local.dev-link.plist`. It forwards Skotty's
+`~/.skotty/sock/default.sock` and these remote loopback ports to the Mac:
+
+- `127.0.0.1:2226` → `127.0.0.1:2226` (`xdg-open-svc`);
+- `127.0.0.1:9222` → `127.0.0.1:9222` (browser debugging, when a browser listens).
+
+The remote command atomically points `~/.ssh/ssh_auth_sock` at this connection's
+agent socket. A real SSH command session is required; a transport-only `ssh -N`
+does not initialize it. Ordinary `ssh dev`, web UI and backups do not replace the
+link. The retained `~/.ssh/rc` fallback also avoids replacing an existing socket
+with one from a short-lived, explicitly forwarded login.
+
+Client liveness probes run every 3 seconds, with 2 missed probes permitted. A
+12-second startup deadline also bounds DNS/authentication stalls. The runner
+retries every 2 seconds and waits for Skotty if it has not started yet. Heartbeats
+to the remote helper run every 2 seconds. After 12 seconds without a heartbeat,
+the helper terminates only its own, non-multiplexed sshd session, releasing its
+remote ports even if the client's VPN vanished without a TCP close. It verifies
+the parent's owner and sshd process name first. No server-wide sshd setting or
+other user's connection is changed. Recovery typically takes seconds after
+network/VPN return; DNS, authentication and routing still need to work.
+
+Logs are `~/Library/Logs/dev-link.log`; repeated identical failures are logged at
+most once a minute. The connection survives terminal closure and reconnects
+after sleep; it is unavailable while the Mac sleeps or is logged out. A changed
+runner/plist restarts only this service on apply, preserving herdr and its agents.
+
+```sh
+launchctl print gui/$(id -u)/local.dev-link
+tail -n 20 ~/Library/Logs/dev-link.log
+launchctl kickstart -k gui/$(id -u)/local.dev-link
+```
 
 Remote bundles are downloaded and checked against the publisher's SHA-256, then
 repacked with one reviewed `service-only-v1` policy: `remote-entry.ts` refuses to

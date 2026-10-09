@@ -21,7 +21,7 @@ REPO = BASE / 'repository'
 PASSWORD = CONFIG / 'password'
 RESTIC = '/opt/homebrew/bin/restic'
 RSYNC = '/opt/homebrew/bin/rsync'
-SSH = ['ssh', '-o', 'ClearAllForwardings=yes', '-o', 'BatchMode=yes',
+SSH = ['ssh', '-o', 'ForwardAgent=no', '-o', 'ClearAllForwardings=yes', '-o', 'BatchMode=yes',
        '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', 'dev']
 
 

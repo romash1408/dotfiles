@@ -38,14 +38,12 @@ Host backup
 {{ end }}
 
 {{ if .work }}
-# Web UI manages its own SSH forwards; do not inherit dev's browser/xdg RemoteForward.
+# Persistent agent/browser forwards belong to local.dev-link on the work Mac.
 Host herdr-web-dev
   HostName dubiner-dev.vla.yp-c.yandex.net
 
 Host dev
   HostName dubiner-dev.vla.yp-c.yandex.net
-  RemoteForward 127.0.0.1:2226 127.0.0.1:2226 # xdg-open-svc
-  RemoteForward 127.0.0.1:9222 127.0.0.1:9222 # ya bro debug
 
 Host dev-mr
   HostName direct-dev-migration-runner.sas.yp-c.yandex.net
@@ -53,8 +51,13 @@ Host dev-mr
 Host prod-mr
   HostName direct-prod-migration-runner.klg.yp-c.yandex.net
 
-Host dev herdr-web-dev dev-mr prod-mr *.yandex.net
+Host dev herdr-web-dev
+  ForwardAgent no
+
+Host dev-mr prod-mr *.yandex.net
   ForwardAgent ~/.skotty/sock/default.sock
+
+Host dev herdr-web-dev dev-mr prod-mr *.yandex.net
   IdentityAgent ~/.skotty/sock/default.sock
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null

@@ -1,0 +1,15 @@
+{{ if and .work (eq .chezmoi.os "darwin") -}}
+#!/bin/sh
+set -eu
+# Restart only the tunnel when its definition changes, never herdr or its agents.
+# plist: {{ include "Library/LaunchAgents/local.dev-link.plist.tmpl" | sha256sum }}
+# runner: {{ include "dot_local/bin/executable_dev-link" | sha256sum }}
+mkdir -p "$HOME/Library/Logs"
+domain="gui/$(id -u)"
+service="$domain/local.dev-link"
+if launchctl print "$service" >/dev/null 2>&1; then
+  launchctl bootout "$service"
+fi
+launchctl enable "$service"
+launchctl bootstrap "$domain" "$HOME/Library/LaunchAgents/local.dev-link.plist"
+{{ end -}}
