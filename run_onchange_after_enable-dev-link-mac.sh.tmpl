@@ -11,5 +11,14 @@ if launchctl print "$service" >/dev/null 2>&1; then
   launchctl bootout "$service"
 fi
 launchctl enable "$service"
-launchctl bootstrap "$domain" "$HOME/Library/LaunchAgents/local.dev-link.plist"
+# bootout can return before launchd has released the old job completely.
+attempt=0
+until error=$(launchctl bootstrap "$domain" "$HOME/Library/LaunchAgents/local.dev-link.plist" 2>&1); do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 10 ]; then
+    printf '%s\n' "$error" >&2
+    exit 1
+  fi
+  sleep 1
+done
 {{ end -}}
