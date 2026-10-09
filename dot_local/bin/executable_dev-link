@@ -26,6 +26,8 @@ temporary.replace(stable)
 print('DEV_LINK_READY', flush=True)
 while select.select([0], [], [], 12)[0] and os.read(0, 4096):
     pass
+if stable.is_symlink() and str(stable.readlink()) == socket:
+    stable.unlink()
 # exec ensures parent is the dedicated sshd session, rather than a shell.
 if os.getppid() == parent:
     proc = pathlib.Path('/proc')/str(parent)
@@ -61,7 +63,10 @@ def terminate(proc):
             os.killpg(proc.pid, signal.SIGKILL)
             proc.wait(timeout=2)
     for stream in (proc.stdin, proc.stdout, proc.stderr):
-        stream.close()
+        try:
+            stream.close()
+        except BrokenPipeError:
+            pass
 
 
 class Supervisor:
