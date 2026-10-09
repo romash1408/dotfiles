@@ -26,6 +26,11 @@ def main():
     target = args.target.expanduser().resolve()
     if source == target or source in target.parents or target in source.parents or target == Path.home():
         parser.error('Source and target must be separate; target cannot be your home')
+    manifest_path = source / 'manifest.json'
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        if 'diff_complete' in manifest and not manifest['diff_complete']:
+            parser.error('Optional dirty diff is incomplete; recover from the saved HEAD instead')
     records = json.loads((source / 'files.json').read_text())
     for record in records:
         relative = Path(record['path'])

@@ -3,13 +3,17 @@
 set -eu
 # Only bootstrap new jobs; applying dotfiles never interrupts an active copy.
 # primary: {{ include "Library/LaunchAgents/local.dev-backup.plist.tmpl" | sha256sum }}
-# archive: {{ include "Library/LaunchAgents/local.dev-backup-archive.plist.tmpl" | sha256sum }}
+# migration: schema-2; Arc objects are remotely recoverable and never copied.
+domain="gui/$(id -u)"
+if launchctl print "$domain/local.dev-backup-archive" >/dev/null 2>&1; then
+  launchctl bootout "$domain/local.dev-backup-archive"
+fi
+rm -f "$HOME/Library/LaunchAgents/local.dev-backup-archive.plist"
 if [ ! -f "$HOME/.config/dev-backup/password" ] || [ ! -f "$HOME/Backups/dev/repository/config" ]; then
   echo "dev-backup repository is not initialized; backup timers were not loaded."
   exit 0
 fi
-domain="gui/$(id -u)"
-for label in local.dev-backup local.dev-backup-archive; do
+for label in local.dev-backup; do
   if ! launchctl print "$domain/$label" >/dev/null 2>&1; then
     launchctl bootstrap "$domain" "$HOME/Library/LaunchAgents/$label.plist"
   fi

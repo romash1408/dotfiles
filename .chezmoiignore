@@ -11,7 +11,6 @@ tests
 .local/libexec/dev-backup
 .local/share/dev-backup
 Library/LaunchAgents/local.dev-backup.plist
-Library/LaunchAgents/local.dev-backup-archive.plist
 {{ end }}
 
 {{ if ne .chezmoi.os "darwin" }}

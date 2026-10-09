@@ -337,17 +337,21 @@ Add one stanza to `.chezmoi.toml.tmpl`:
 
 ## dev disaster recovery on the work Mac
 
-`dev-backup run` pulls agent histories/configuration, SQLite online snapshots,
-and portable Arc worktree exports over SSH into encrypted restic snapshots at
-`~/Backups/dev/repository`. Calendar LaunchAgent `local.dev-backup` runs at
-minutes 0 and 30, on login, and catches missed calendar events after waking.
-`local.dev-backup-archive` additionally saves physical Arc objects/refs and old
-local projects daily. Neither job restarts Herdr or changes agents' branches.
+`dev-backup run` captures authoritative `herdr-history`, archived transcript HTML,
+managed active Codex conversations (including native child threads), scoped SQLite
+state, and each agent's actual Arc branch/HEAD. Dirty diffs and local checkpoints
+are best effort. It never copies Arc objects, skills from junk, or reproducible
+chezmoi configuration. Unmanaged/modified user units and small referenced scripts
+are preserved separately. OpenCode/watchdog and unmanaged ops tabs are excluded.
+
+Encrypted restic repository: `~/Backups/dev/repository`. Calendar LaunchAgent
+`local.dev-backup` runs every 30 minutes, on login and after missed wake events.
+The obsolete daily object-store job is removed on apply. No Herdr agents stop.
 
 Use `dev-backup status`, `dev-backup snapshots`, or
-`dev-backup restore --target ~/dev-recovery` (a new directory). Read
-[`RECOVERY.md`](dot_local/share/dev-backup/RECOVERY.md) for migrating Linux paths,
-recovering local changes, and resuming agents on macOS. The repository password
-is in `~/.config/dev-backup/password` (600), outside git and outside dev.
-`chezmoi apply` only loads backup jobs after the repository/key are initialized;
-it does not interrupt existing jobs. Tests: `python3 -m unittest discover -s tests -p test_dev_backup.py`.
+`dev-backup restore --target ~/dev-recovery` (a new directory; schema-2 only).
+[`RECOVERY.md`](dot_local/share/dev-backup/RECOVERY.md) is an executable runbook
+for a fresh Herdr Ops agent; `prepare-recovery.py` builds its exact recovery plan
+without changing existing Mac state. The key is saved as `dev-backup-restic` in
+rbw and in `~/.config/dev-backup/password` (600) for unattended backups.
+Tests: `python3 -m unittest discover -s tests -p test_dev_backup.py`.

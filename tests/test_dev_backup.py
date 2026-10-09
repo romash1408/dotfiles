@@ -82,7 +82,7 @@ writer.execute('PRAGMA journal_mode=WAL')
 writer.execute('CREATE TABLE data(value TEXT)');writer.commit()
 writer.execute("INSERT INTO data VALUES ('committed in WAL')");writer.commit()
 result=module.sqlite_copy(source)
-copy=module.RUN/'databases/home/live.sqlite'
+copy=module.RUN/'home/live.sqlite'
 with sqlite3.connect(copy) as restored:
  assert restored.execute('SELECT value FROM data').fetchone()[0]=='committed in WAL'
  assert restored.execute('PRAGMA quick_check').fetchone()[0]=='ok'
@@ -93,7 +93,7 @@ writer.close()
                            env={**os.environ, 'HOME': str(home)}, capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
 
-    def test_ssh_failure_keeps_last_success_and_preserves_partial(self):
+    def test_ssh_failure_keeps_last_success_without_stale_partial(self):
         home = self.root / 'backup-home'; home.mkdir()
         cfg = home / '.config/dev-backup'; cfg.mkdir(parents=True)
         (cfg / 'password').write_text('temporary-test-password\n')
@@ -101,12 +101,12 @@ writer.close()
         repo.parent.mkdir(parents=True)
         restic = ['/opt/homebrew/bin/restic', '-r', str(repo), '-p', str(cfg / 'password')]
         subprocess.run([*restic, 'init'], check=True, capture_output=True)
-        stage = home / 'Backups/dev/.staging'
+        stage = home / 'Backups/dev/.staging-v2'
         for name in ['home', 'recovery', 'resolved-skills']:
             (stage / name).mkdir(parents=True)
         (stage / 'home/important').write_text('previous good copy')
         (stage / 'recovery/manifest.json').write_text(json.dumps({'complete': True}))
-        subprocess.run([*restic, 'backup', '.', '--host', 'dev', '--tag', 'complete'],
+        subprocess.run([*restic, 'backup', '.', '--host', 'dev', '--tag', 'complete', '--tag', 'managed-codex'],
                        cwd=stage, check=True, capture_output=True)
         good = json.loads(subprocess.run([*restic, 'snapshots', '--json'], check=True,
                                         capture_output=True, text=True).stdout)[0]['id']
@@ -123,18 +123,112 @@ writer.close()
         status = json.loads((cfg / 'status.json').read_text())
         self.assertEqual(status['last_success'], 'previous-success')
         self.assertFalse(status['running'])
-        self.assertIn('last_partial_snapshot', status)
+        self.assertNotIn('last_partial_snapshot', status)
         snapshots = json.loads(subprocess.run([*restic, 'snapshots', '--json'], check=True,
                                              capture_output=True, text=True).stdout)
-        self.assertEqual(len(snapshots), 2)
+        self.assertEqual(len(snapshots), 1)
         self.assertTrue(any('complete' in x['tags'] for x in snapshots))
-        self.assertTrue(any('partial' in x['tags'] for x in snapshots))
         target = home / 'restored'
         restored = subprocess.run([sys.executable, str(BACKUP), 'restore', '--snapshot', good,
                                    '--target', str(target)], env={**os.environ, 'HOME': str(home)},
                                   capture_output=True, text=True)
         self.assertEqual(restored.returncode, 0, restored.stderr)
         self.assertEqual((target / 'home/important').read_text(), 'previous good copy')
+
+class ScopedCollectorTests(unittest.TestCase):
+    def run_collector_test(self, body):
+        with tempfile.TemporaryDirectory() as temporary:
+            code = "import pathlib,sys,json,sqlite3\nnamespace={'__file__':sys.argv[1],'__name__':'collector_test'}\nexec(compile(pathlib.Path(sys.argv[1]).read_text(),sys.argv[1],'exec'),namespace)\n" + body
+            p = subprocess.run([sys.executable, '-c', code, str(COLLECT)],
+                               env={**os.environ, 'HOME': temporary, 'PYTHONDONTWRITEBYTECODE': '1'},
+                               capture_output=True, text=True)
+            self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_scope_removes_unmanaged_threads_and_queue_rows(self):
+        self.run_collector_test('''
+p=pathlib.Path.home()/'state.sqlite'
+with sqlite3.connect(p) as db:
+ db.execute('CREATE TABLE threads(id TEXT PRIMARY KEY)')
+ db.executemany('INSERT INTO threads VALUES (?)',[('worker',),('child',),('ops',)])
+ db.execute('CREATE TABLE queued_items(thread_id TEXT,payload_json TEXT)')
+ db.executemany('INSERT INTO queued_items VALUES (?,?)',[('worker','keep'),('ops','remove')])
+ db.execute('CREATE TABLE thread_spawn_edges(parent_thread_id TEXT,child_thread_id TEXT)')
+ db.executemany('INSERT INTO thread_spawn_edges VALUES (?,?)',[('worker','child'),('ops','worker')])
+namespace['trim_database'](p,{'worker','child'})
+with sqlite3.connect(p) as db:
+ assert {x[0] for x in db.execute('SELECT id FROM threads')}=={'worker','child'}
+ assert list(db.execute('SELECT * FROM queued_items'))==[('worker','keep')]
+ assert list(db.execute('SELECT * FROM thread_spawn_edges'))==[('worker','child')]
+ assert db.execute('PRAGMA quick_check').fetchone()[0]=='ok'
+''')
+
+    def test_jsonl_preserves_interior_bytes_but_omits_unfinished_tail(self):
+        self.run_collector_test('''
+sid='00000000-0000-4000-8000-000000000001'
+p=pathlib.Path.home()/'.codex/sessions/rollout.jsonl';p.parent.mkdir(parents=True)
+head=json.dumps({'type':'session_meta','payload':{'id':sid}}).encode()+b'\\n'
+data=head+b'{bad historical record}\\n'+b'{"unfinished":'
+p.write_bytes(data)
+r=namespace['session_copy'](p,sid)
+assert (namespace['RUN']/'home'/r['path']).read_bytes()==head+b'{bad historical record}\\n'
+assert r['malformed_jsonl_lines']==1
+assert r['unfinished_bytes_omitted']==len(b'{"unfinished":')
+assert p.read_bytes()==data
+''')
+
+    def test_history_name_match_cannot_select_a_different_pane(self):
+        self.run_collector_test('''
+r={'agent':{'name':'worker'},'herdr':{'agent_pane_id':'w1:p1'}}
+a=[{'name':'worker','pane_id':'w1:p2','agent':'codex','agent_session':{'kind':'id','value':'00000000-0000-4000-8000-000000000001'}}]
+try: namespace['choose_live'](r,a)
+except RuntimeError: pass
+else: raise AssertionError('Selected a different pane')
+''')
+
+
+class TransferFailureTests(unittest.TestCase):
+    def test_fresh_transfer_failure_keeps_previous_snapshot_and_current_partial(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            code = """
+import pathlib,sys,json,subprocess
+ns={'__file__':sys.argv[1],'__name__':'backup_test'}
+exec(compile(pathlib.Path(sys.argv[1]).read_text(),sys.argv[1],'exec'),ns)
+h=pathlib.Path.home();cfg=ns['CONFIG'];cfg.mkdir(parents=True)
+(cfg/'password').write_text('test-only-password')
+ns['REPO'].parent.mkdir(parents=True)
+subprocess.run([ns['RESTIC'],'-r',str(ns['REPO']),'-p',str(cfg/'password'),'init'],check=True,capture_output=True)
+for part in ['home','recovery']:(ns['STAGE']/part).mkdir(parents=True)
+(ns['STAGE']/'home/important').write_text('previous good data')
+(ns['STAGE']/'recovery/manifest.json').write_text(json.dumps({'complete':True}))
+ns['snapshot']('complete')
+(cfg/'status.json').write_text(json.dumps({'last_success':'previous-success'}))
+collector=h/'.local/libexec/dev-backup/collect.py';collector.parent.mkdir(parents=True);collector.write_text('fake collector')
+manifest={'source_home':str(h),'complete':True,'capture':'fresh'}
+remote=str(h/'.cache/dev-backup/run-')+'a'*32
+original_run=ns['run']
+def run(args,**kwargs):
+ if args[0]=='ssh':return subprocess.CompletedProcess(args,0,stdout=json.dumps({'run_dir':remote,'manifest':manifest}).encode())
+ return original_run(args,**kwargs)
+def sync(source,target,**kwargs):
+ if source.endswith('/recovery/'):
+  (target/'manifest.json').write_text(json.dumps(manifest))
+ else:raise subprocess.CalledProcessError(23,['rsync','fresh-export'])
+ns['run']=run;ns['sync']=sync;sys.argv=['dev-backup','run']
+try:ns['main']()
+except subprocess.CalledProcessError:pass
+else:raise AssertionError('Transfer failure was ignored')
+status=json.loads((cfg/'status.json').read_text())
+assert status['last_success']=='previous-success'
+assert status.get('last_partial_snapshot')
+assert json.loads((ns['STAGE']/'recovery/manifest.json').read_text())['capture']=='fresh'
+snapshots=json.loads(subprocess.check_output([ns['RESTIC'],'-r',str(ns['REPO']),'-p',str(cfg/'password'),'snapshots','--json']))
+assert len(snapshots)==2
+assert any('complete' in s['tags'] for s in snapshots)
+assert any('partial' in s['tags'] for s in snapshots)
+"""
+            result=subprocess.run([sys.executable,'-c',code,str(BACKUP)],
+                                  env={**os.environ,'HOME':temporary,'PYTHONDONTWRITEBYTECODE':'1'},capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
 
 
 if __name__ == '__main__':

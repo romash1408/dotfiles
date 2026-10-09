@@ -15,7 +15,7 @@ import time
 
 HOME = Path.home()
 BASE = HOME / 'Backups/dev'
-STAGE = BASE / '.staging'
+STAGE = BASE / '.staging-v2'
 CONFIG = HOME / '.config/dev-backup'
 REPO = BASE / 'repository'
 PASSWORD = CONFIG / 'password'
@@ -23,20 +23,7 @@ RESTIC = '/opt/homebrew/bin/restic'
 RSYNC = '/opt/homebrew/bin/rsync'
 SSH = ['ssh', '-o', 'ClearAllForwardings=yes', '-o', 'BatchMode=yes',
        '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', 'dev']
-EXCLUDES = ['*.sock', '*.sock.*', '*.lock', 'LOCK', 'LOCK_client', 'lock', '*-wal', '*-shm',
-            '*.sqlite', '*.sqlite3', '*.db', '.overlay_v2/',
-            '/.arc/store/', '/.arc/stores/', '/.arc/releases/', '/projects/arc_obj_store/',
-            '/.codex/log/', '/.codex/logs_*.sqlite', '/.codex/plugins/cache/',
-            '/.codex/plugins/marketplaces/', '/.codex/.tmp/', '/.codex/tmp/',
-            '/.codex/thread-writer-locks/', '/.codex/shell_snapshots/',
-            '/.claude/debug/', '/.claude/telemetry/', '/.claude/statsig/',
-            '/.mcp/logs/queue/',
-            '/.local/state/ci-check/', '/.local/share/opencode/log/',
-            '/.local/share/opencode/snapshot/', '/.local/share/tools-sync/downloads/',
-            '/.local/share/tools-sync/backups/', '/.config/herdr-web-ui/',
-            '/.config/Code/', '/.config/go/', '/.config/opencode/node_modules/',
-            'node_modules/', '.build/', '.gradle/', '__pycache__/', '.pytest_cache/', '.DS_Store']
-LEGACY_PROJECTS = ['grut', 'hatter', 'logos_direct', 'umr', 'opencode']
+
 
 
 def now():
@@ -86,10 +73,6 @@ def sync(source, destination, files=None, excludes=(), directory_links=False):
 def snapshot(tag, paths=None):
     recovery = STAGE / 'recovery'
     recovery.mkdir(exist_ok=True)
-    if paths == ['raw-arc']:
-        p = restic('backup', 'raw-arc', '--host', 'dev', '--tag', tag, '--json',
-                   cwd=STAGE, capture_output=True, text=True)
-        return next(json.loads(x) for x in reversed(p.stdout.splitlines()) if json.loads(x).get('message_type') == 'summary')
     shutil.copy2(Path(__file__).resolve(), recovery / 'dev-backup')
     guide = HOME / '.local/share/dev-backup/RECOVERY.md'
     if guide.exists():
@@ -97,7 +80,13 @@ def snapshot(tag, paths=None):
     restore_script = HOME / '.local/libexec/dev-backup/restore-worktree.py'
     if restore_script.exists():
         shutil.copy2(restore_script, recovery / 'restore-worktree.py')
-    p = restic('backup', *(paths or ['home', 'recovery', 'resolved-skills']), '--host', 'dev', '--tag', tag, '--json',
+    prepare = HOME / '.local/libexec/dev-backup/prepare-recovery.py'
+    if prepare.exists():
+        shutil.copy2(prepare, recovery / 'prepare-recovery.py')
+    verify = HOME / '.local/libexec/dev-backup/verify-sessions.py'
+    if verify.exists():
+        shutil.copy2(verify, recovery / 'verify-sessions.py')
+    p = restic('backup', *(paths or ['home', 'recovery']), '--host', 'dev', '--tag', tag, '--tag', 'managed-codex', '--json',
                cwd=STAGE, capture_output=True, text=True)
     lines = [json.loads(x) for x in p.stdout.splitlines() if x.strip()]
     summary = next(x for x in reversed(lines) if x.get('message_type') == 'summary')
@@ -109,13 +98,14 @@ def snapshot(tag, paths=None):
 
 def preserve_partial(error):
     manifest = STAGE / 'recovery/manifest.json'
-    if not manifest.exists():
+    status_path = CONFIG / 'status.json'
+    if not manifest.exists() or not json.loads(status_path.read_text()).get('capture_received'):
         return
     value = json.loads(manifest.read_text())
     value['complete'] = False
     value.setdefault('transfer_errors', []).append(str(error))
     manifest.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
-    for name in ['home', 'resolved-skills']:
+    for name in ['home']:
         (STAGE / name).mkdir(exist_ok=True)
     try:
         summary = snapshot('partial')
@@ -129,52 +119,43 @@ def backup():
         raise RuntimeError('Initialize the repository and private password file before enabling the timer')
     if shutil.disk_usage(BASE).free < 25 * 1024**3:
         raise RuntimeError('Less than 25 GiB free; keeping previous snapshots and stopping')
-    started = now()
-    save_status({'last_attempt': started, 'running': True, 'error': None})
+    save_status({'last_attempt': now(), 'running': True, 'error': None,
+                 'capture_received': False, 'backup_schema': 2, 'scope': 'managed-codex-recovery',
+                 'archive_enabled': False, 'archive_running': False, 'archive_error': None})
     collector = HOME / '.local/libexec/dev-backup/collect.py'
     worker = "import sys; SOURCE_CODE=sys.stdin.read(); exec(compile(SOURCE_CODE, '<dev-backup-collector>', 'exec'))"
     p = run([*SSH, 'python3 -c ' + shlex.quote(worker)], input=collector.read_bytes(), capture_output=True, timeout=1800)
     result = json.loads(p.stdout)
     remote = result['run_dir']
-    if not remote.startswith(result['manifest']['source_home'] + '/.cache/dev-backup/run-'):
+    source_home = result['manifest']['source_home']
+    import re
+    if not re.fullmatch(re.escape(source_home + '/.cache/dev-backup/run-') + '[0-9a-f]{32}', remote):
         raise RuntimeError('Unexpected collector output path')
-    # Recovery exports reach the Mac BEFORE large histories/tool payloads.
-    sync('dev:' + remote + '/recovery/', STAGE / 'recovery')
-    roots = [x for x in result['manifest']['roots'] if x not in ('projects/arc_obj_store', *LEGACY_PROJECTS)]
-    result['manifest']['primary_roots'] = roots
-    result['manifest']['daily_archive_roots'] = ['.arc', 'projects/arc_obj_store', *LEGACY_PROJECTS]
-    (STAGE / 'recovery/manifest.json').write_text(json.dumps(result['manifest'], ensure_ascii=False, indent=2) + '\n')
-    for name in LEGACY_PROJECTS:
-        obsolete_stage = STAGE / 'home' / name
-        if obsolete_stage.is_symlink():
-            obsolete_stage.unlink()
-        elif obsolete_stage.exists():
-            shutil.rmtree(obsolete_stage)
-    sync('dev:./', STAGE / 'home', files=roots, excludes=EXCLUDES)
-    # Overlay only DB files; --delete here would erase all non-database history.
-    db_paths = [d['path'] for d in result['manifest']['databases']]
-    with tempfile.NamedTemporaryFile(dir=CONFIG) as f:
-        f.write(''.join(x + '\n' for x in db_paths).encode()); f.flush()
-        run([RSYNC, '-azr', '--compress-choice=zstd', '--no-owner', '--no-group', '--timeout=120',
-             '-e', shlex.join(SSH[:-1]), '--relative', '--files-from=' + f.name,
-             'dev:' + remote + '/databases/home/', STAGE / 'home'])
-    sync('dev:.agents/', STAGE / 'resolved-skills', directory_links=True,
-         excludes=['node_modules/', '__pycache__/', '.git/'])
-    # --delete applies only to staging directories, never the snapshot repository.
-    summary = snapshot('complete' if result['manifest']['complete'] else 'partial')
-    values = {'running': False, 'last_snapshot': summary['snapshot_id'], 'last_snapshot_at': now(),
-              'arc_worktrees': len(result['manifest']['arc_exports']), 'databases': len(db_paths),
-              'errors': result['manifest']['errors'], 'error': None}
-    if result['manifest']['complete']:
-        values['last_success'] = now()
-        values['last_complete_snapshot'] = summary['snapshot_id']
-    save_status(values)
-    # Remove only this completed temporary collector export on dev.
-    run([*SSH, 'rm -rf -- ' + shlex.quote(remote)])
-    if not result['manifest']['complete']:
-        raise RuntimeError('Partial backup preserved; see recovery/manifest.json and status.json')
-    # Keep two days of hourly history, two weeks of daily, eight weekly and six monthly.
-    # Forget removes references only; reclaiming data is a separate explicit prune.
+    try:
+        # Only immutable selected export data is copied; live HOME is never mirrored.
+        sync('dev:' + remote + '/recovery/', STAGE / 'recovery')
+        save_status({'capture_received': True})
+        sync('dev:' + remote + '/home/', STAGE / 'home')
+        manifest = result['manifest']
+        summary = snapshot('complete' if manifest['complete'] else 'partial')
+        values = {'running': False, 'capture_received': False,
+                  'last_snapshot': summary['snapshot_id'], 'last_snapshot_at': now(),
+                  'arc_worktrees': len(manifest['arc_exports']), 'databases': len(manifest['databases']),
+                  'managed_agents': manifest['managed_agents'], 'sessions': len(manifest['sessions']),
+                  'history_records': manifest['history_records'], 'warnings': manifest['warnings'],
+                  'errors': manifest['errors'], 'error': None}
+        if manifest['complete']:
+            values.update(last_success=now(), last_complete_snapshot=summary['snapshot_id'])
+        else:
+            values.update(last_partial_snapshot=summary['snapshot_id'], last_partial_at=now())
+        save_status(values)
+        if not manifest['complete']:
+            raise RuntimeError('Partial backup preserved; see recovery/manifest.json and status.json')
+    finally:
+        try:
+            run([*SSH, 'rm -rf -- ' + shlex.quote(remote)], timeout=30)
+        except Exception as error:
+            print('Remote temporary export cleanup deferred:', error, file=sys.stderr)
     restic('forget', '--host', 'dev', '--tag', 'complete', '--keep-hourly', '48',
            '--keep-daily', '14', '--keep-weekly', '8', '--keep-monthly', '6')
     previous = json.loads((CONFIG / 'status.json').read_text())
@@ -185,34 +166,10 @@ def backup():
         save_status({'last_check': now(), 'last_prune': now()})
 
 
-def archive():
-    """Additional Arc object/ref rescue copy, including parked branch histories."""
-    if not PASSWORD.exists() or not (REPO / 'config').exists():
-        raise RuntimeError('Backup repository is not initialized')
-    if shutil.disk_usage(BASE).free < 60 * 1024**3:
-        raise RuntimeError('Less than 60 GiB free; stopping the optional large Arc archive')
-    save_status({'archive_running': True, 'archive_attempt': now()})
-    roots = ['.arc', 'projects/arc_obj_store', *LEGACY_PROJECTS]
-    # Fixed optional project roots are inventoried remotely before rsync.
-    inventory = "import json,pathlib; h=pathlib.Path.home(); print(json.dumps([x for x in " + repr(roots) + " if (h/x).exists()]))"
-    roots = json.loads(run([*SSH, 'python3 -c ' + shlex.quote(inventory)], capture_output=True, text=True).stdout)
-    sync('dev:./', STAGE / 'raw-arc', files=roots,
-         excludes=['.overlay_v2/', '/.arc/releases/', '/.arc/traces/',
-                   'traces/', '*.log', '*.pid', 'port', 'LOCK', 'LOCK_client', '*.lock',
-                   '.build/', '.gradle/', 'node_modules/', '__pycache__/'])
-    # Objects and refs are a secondary rescue copy, not a transactional Arc database.
-    # The primary portable exports remain the tested macOS recovery path.
-    summary = snapshot('arc-objects', ['raw-arc'])
-    save_status({'archive_running': False, 'archive_snapshot': summary['snapshot_id'],
-                 'archive_success': now(), 'archive_error': None})
-    restic('forget', '--host', 'dev', '--tag', 'arc-objects', '--keep-daily', '7',
-           '--keep-weekly', '8', '--keep-monthly', '6')
-
-
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', nargs='?', default='run', choices=['run', 'archive', 'status', 'snapshots', 'check', 'restore', 'prune'])
+    parser.add_argument('action', nargs='?', default='run', choices=['run', 'status', 'snapshots', 'check', 'restore', 'prune'])
     parser.add_argument('--snapshot', default='latest')
     parser.add_argument('--target', type=Path)
     args = parser.parse_args()
@@ -224,12 +181,12 @@ def main():
     if args.action == 'snapshots':
         restic('snapshots', '--host', 'dev')
         return
-    lock = (CONFIG / ('archive.lock' if args.action == 'archive' else 'lock')).open('a')
+    lock = (CONFIG / 'lock').open('a')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         print('Another backup/check/restore is running; skipped')
-        if args.action not in ('run', 'archive'):
+        if args.action != 'run':
             raise SystemExit(1)
         return
     if args.action == 'run':
@@ -244,12 +201,6 @@ def main():
         save_status({'last_check': now()})
     elif args.action == 'prune':
         restic('prune')
-    elif args.action == 'archive':
-        try:
-            archive()
-        except Exception as e:
-            save_status({'archive_running': False, 'archive_error': str(e)})
-            raise
     elif args.action == 'restore':
         if args.target is None:
             parser.error('restore requires --target, a NEW recovery directory')
@@ -260,7 +211,7 @@ def main():
             parser.error('Choose a recovery directory outside the backup repository')
         # Relative backup inputs create /home, /recovery, /resolved-skills in
         # the snapshot tree; metadata "paths" are absolute but not tree prefixes.
-        restic('restore', args.snapshot, '--host', 'dev', '--tag', 'complete',
+        restic('restore', args.snapshot, '--host', 'dev', '--tag', 'complete,managed-codex',
                '--target', target, '--verify')
         print('Restored to', target, '\nRead', target / 'recovery/RECOVERY.md')
 
