@@ -2,7 +2,8 @@ README.md
 tests
 **/__pycache__
 
-{{ if ne .chezmoi.os "linux" }}
+{{ if not (and .work .offline (eq .chezmoi.os "linux")) }}
+# The imported login profile belongs to the work VMs, not the Mac or personal hp.
 .profile
 {{ end }}
 
