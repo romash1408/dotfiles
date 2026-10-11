@@ -14,6 +14,10 @@ description: Синхронизировать операции О!Банка с 
 - `merge.py` склеивает экраны по перекрытию;
 - `obank.py` превращает дампы О!Банка в `bank.json` (дата с годом, сумма, статус, возврат, зачёркнутая);
 - `money.py` работает с таблицей: `sync`, `reconcile`, `plan`, `insert`, `fix-amount`;
+- `sync.md` — **как устроены таблица и синк money-sync** (колонки, что синк делает со строками,
+  от чего он падает). Прочитайте до первой записи: репозитория рядом может не быть, гадать нельзя;
+- `credentials.json`, `.env` — секреты: ключ сервисного аккаунта Google, `SPREADSHEET_ID`,
+  `SYNC_SECRET`. В chezmoi они хранятся зашифрованными, наружу их не выводить;
 - `reference.md` — общая техника adb-скрейпинга и ловушки, найденные на практике.
 
 Рабочие файлы (дампы, json) складывайте в scratchpad, а не в репозиторий.
@@ -21,18 +25,24 @@ description: Синхронизировать операции О!Банка с 
 
 ## 0. Окружение
 
-- **Таблица.** `money.py` берёт `SPREADSHEET_ID` и `credentials.json` из репозитория money.
-  Репозиторий он ищет в cwd и родительских каталогах, затем в `~/projects/money`. Можно задать
-  `MONEY_DIR`, `SPREADSHEET_ID`, `GOOGLE_CREDENTIALS_FILE`. Если ключа нет, остановитесь и
-  спросите пользователя: ключ лежит только у него, в git его нет.
+Репозиторий money не нужен: всё необходимое лежит в скилле.
+
+- **Таблица.** `money.py` берёт `credentials.json` и `.env` из каталога скилла. Если их там нет,
+  ищет их в `MONEY_DIR` или `~/projects/money`. Переменные окружения `SPREADSHEET_ID`,
+  `GOOGLE_CREDENTIALS_FILE`, `SYNC_SECRET` важнее файлов. Если ключа нет нигде, остановитесь и
+  спросите пользователя (вероятно, chezmoi не расшифровал секреты).
 - **Python.** `obank.py`, `scrape.py` и `merge.py` работают на стандартной библиотеке.
-  `money.py` нужен `google-api-python-client`. В качестве `$PY` берите `$MONEY_DIR/.venv/bin/python`,
-  а если его нет — `python3 -m venv <scratchpad>/venv && <scratchpad>/venv/bin/pip install google-api-python-client`.
-- **Синк.** По умолчанию `http://localhost:8090/sync` (сервис из `compose.yaml` репозитория).
-  На другом компьютере сервиса может не быть: спросите адрес и передайте его через `SYNC_URL`.
-  `SYNC_SECRET` подхватывается из `.env`, если он задан.
+  `money.py` нужен `google-api-python-client`, поэтому держите для него отдельный venv:
+  ```bash
+  PY=~/.cache/adb-scrape-list/venv/bin/python
+  [ -x $PY ] || { python3 -m venv ~/.cache/adb-scrape-list/venv && ~/.cache/adb-scrape-list/venv/bin/pip -q install google-api-python-client; }
+  ```
+- **Синк** — `http://hp.wg:8090/sync`, домашний сервер через WireGuard. С любой машины адрес
+  один и тот же, он зашит по умолчанию (переопределить можно через `SYNC_URL`). Если `hp.wg`
+  недоступен, это стоп: попросите пользователя поднять WireGuard.
 - **Телефон.** `adb devices -l`. Если устройств несколько (например, висит офлайн-эмулятор),
-  выберите физическое и выставьте `export ANDROID_SERIAL=<serial>` для всех команд.
+  выберите физическое и выставьте `export ANDROID_SERIAL=<serial>` для всех команд. Если
+  устройство `unauthorized`, попросите пользователя подтвердить отладку на телефоне.
 
 ## 1. Проверки перед стартом (при любой ошибке — стоп)
 
