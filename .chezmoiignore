@@ -18,6 +18,9 @@ tests
 Library/LaunchAgents/local.dev-backup.plist
 .local/bin/dev-link
 Library/LaunchAgents/local.dev-link.plist
+.local/bin/herdr-watchdog
+.local/libexec/herdr-watchdog
+.config/herdr-watchdog
 {{ end }}
 
 {{ if ne .chezmoi.os "darwin" }}

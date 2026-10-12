@@ -394,3 +394,30 @@ for a fresh Herdr Ops agent; `prepare-recovery.py` builds its exact recovery pla
 without changing existing Mac state. The key is saved as `dev-backup-restic` in
 rbw and in `~/.config/dev-backup/password` (600) for unattended backups.
 Tests: `python3 -m unittest discover -s tests -p test_dev_backup.py`.
+
+## Manual watchdog on the work Mac
+
+Run `herdr-watchdog` (or `herdr-watchdog run`) for one complete OpenCode review.
+This calls the existing watchdog's `cron` mode: it creates the `watchdog` tab in
+the live Ops workspace if needed, starts the original internal model, and sends
+one review signal. It does not install a timer or keep dispatching new rounds.
+The watchdog can nudge agents, hand infrastructure issues to Ops, and send the
+notifications defined by its skill. An already-running round is not duplicated.
+
+`herdr-watchdog audit` checks history against live Herdr resources;
+`herdr-watchdog snapshot` collects facts without starting the OpenCode reviewer.
+Results/state live in `~/.local/state/herdr-watchdog/`, with the current report
+in `latest.json`. The runtime configuration is
+`~/.config/herdr-watchdog/config.json`; the launcher refreshes the Ops pane and
+workspace IDs from the live `herdr_ops` name on each invocation.
+
+The wrapper and configuration are scoped to work macOS machines. It uses the
+existing backup validation venv for PyYAML and the recovered
+`~/.codex-dev-recovery` conversations. It delegates all review logic to the
+original script. Run `herdr-watchdog refresh` after installing/updating skills
+from junk to refresh its local runtime copy; Arc must be available for refresh.
+Initial setup also needs that refresh before the first run. OpenCode receives
+Mac paths in the review prompt and uses the same Python environment.
+
+Automatic context compaction is disabled. Its current process-epoch proof uses
+Linux `/proc`, so enabling it on macOS requires a separately reviewed adapter.

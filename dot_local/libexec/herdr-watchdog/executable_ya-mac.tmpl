@@ -1,0 +1,11 @@
+#!/bin/sh
+# OpenCode inherits the Python environment needed by watchdog.py.
+export PATH="{{ .chezmoi.homeDir }}/.local/share/dev-backup/validation-venv/bin:$PATH"
+export CODEX_HOME="{{ .chezmoi.homeDir }}/.codex-dev-recovery"
+if [ "${1:-}" = code ] && [ "${2:-}" = oc ]; then
+    shift 2
+    # HOME already has global AISuite settings; it is not a project checkout.
+    # Current OpenCode requires mini mode for the existing --no-replay flag.
+    exec /usr/local/bin/ya code --no-auto-configure oc --mini "$@"
+fi
+exec /usr/local/bin/ya "$@"
