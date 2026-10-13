@@ -36,6 +36,7 @@ temporary = CONFIG.with_suffix('.tmp')
 temporary.write_text(json.dumps(config, ensure_ascii=False, indent=2) + '\n')
 os.replace(temporary, CONFIG)
 os.environ['CODEX_HOME'] = config['codex_home']
+os.environ['HERDR_WATCHDOG_CODEX_HOMES'] = json.dumps(config.get('codex_homes', [config['codex_home']]))
 os.environ['PATH'] = str(PYTHON.parent) + os.pathsep + os.environ['PATH']
 sys.path.insert(0, str(RUNTIME))
 import watchdog
@@ -60,7 +61,7 @@ class MacRunner(OriginalRunner):
             argv[4] += ('\nРучной проход на Mac, без расписания. Выполни ровно один snapshot и полный разбор по скиллу. '
                         'Пути /home/dubiner из скилла здесь устарели. Для всех режимов скрипта используй '
                         'python3 ' + str(RUNTIME / 'watchdog.py') + '; config уже в ' + str(CONFIG) + '. '
-                        'Автосжатие выключено; не включай его и не создавай таймеры. '
+                        'Компакция управляется проверенными gates в config и готовностью конкретной сессии; не обходи их и не создавай таймеры. '
                         'Следующий сигнал будет только по ручному вызову, не обещай повтор через 15 минут. '
                         'Существующие разрешения и Mac resource policy агентов сохраняются.')
         return super().run(argv, **kwargs)

@@ -12,6 +12,8 @@
   "ya_bin": "{{ .chezmoi.homeDir }}/.local/libexec/herdr-watchdog/ya-mac",
   "arc_bin": "/opt/homebrew/bin/arc",
   "arc_cwd": "{{ .chezmoi.homeDir }}/arcadia-dev-recovery",
+  "codex_home_patterns": ["{{ .chezmoi.homeDir }}/.codex-herdr-*"],
+  "codex_homes": ["{{ .chezmoi.homeDir }}/.codex-dev-recovery", "{{ .chezmoi.homeDir }}/.codex"],
   "codex_home": "{{ .chezmoi.homeDir }}/.codex-dev-recovery",
   "state_dir": "{{ .chezmoi.homeDir }}/.local/state/herdr-watchdog",
   "user_login": "dubiner",

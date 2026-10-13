@@ -419,5 +419,14 @@ from junk to refresh its local runtime copy; Arc must be available for refresh.
 Initial setup also needs that refresh before the first run. OpenCode receives
 Mac paths in the review prompt and uses the same Python environment.
 
-Automatic context compaction is disabled. Its current process-epoch proof uses
-Linux `/proc`, so enabling it on macOS requires a separately reviewed adapter.
+Compaction supports macOS `libproc` process identity and the same verified
+checkpoint/native hook recovery protocol as Linux. Initial configuration leaves
+it disabled: enable only after native `/hooks` review and a successful compact
+pilot. Each session needs a callback bound to its current PID, microsecond
+creation epoch, UUID and cwd. Missing evidence leaves that session ineligible.
+`codex_homes` includes normal/recovery homes; `codex_home_patterns` discovers
+isolated `~/.codex-herdr-*` homes. Direct OpenCode script calls load this config,
+so they use the same homes as the wrapper. Run the hook installer with the venv
+Python and explicit CODEX_HOME for every home currently in use; it preserves
+existing policy hooks. See the installed herdr-watchdog skill's compaction
+reference for install/rollback and exact gates. No timer is configured.
