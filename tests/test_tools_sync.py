@@ -100,6 +100,32 @@ class ArcGateTests(unittest.TestCase):
 
 
 class BridgePolicyTests(unittest.TestCase):
+    def test_nested_ci_executable_link_resolves_inside_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stage=Path(tmp)
+            member=tarfile.TarInfo('node_modules/mermaid/node_modules/.bin/katex')
+            member.type=tarfile.SYMTYPE
+            member.linkname='/home/runner/work/herdr-web-ui/herdr-web-ui/node_modules/mermaid/node_modules/katex/cli.js'
+            WEB.relocate_ci_bin_link(member,stage)
+            self.assertFalse(Path(member.linkname).is_absolute())
+            self.assertEqual((stage/Path(member.name).parent/member.linkname).resolve(),
+                             (stage/'node_modules/mermaid/node_modules/katex/cli.js').resolve())
+
+    def test_ci_link_cannot_escape_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            member=tarfile.TarInfo('node_modules/.bin/bad')
+            member.type=tarfile.SYMTYPE
+            member.linkname='/home/runner/work/herdr-web-ui/herdr-web-ui/node_modules/../../escape'
+            with self.assertRaises(RuntimeError): WEB.relocate_ci_bin_link(member,Path(tmp))
+
+    def test_unrelated_absolute_link_is_not_relocated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            member=tarfile.TarInfo('node_modules/.bin/bad')
+            member.type=tarfile.SYMTYPE
+            member.linkname='/etc/passwd'
+            WEB.relocate_ci_bin_link(member,Path(tmp))
+            self.assertEqual(member.linkname,'/etc/passwd')
+
     def test_unknown_upstream_layout_blocks_update(self):
         with self.assertRaises(RuntimeError): WEB.service_only_entry('changed upstream entrypoint')
 

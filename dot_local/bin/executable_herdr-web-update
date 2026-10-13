@@ -49,6 +49,20 @@ def service_only_entry(source):
     return source.replace(anchor, anchor + '\n    // chezmoi: service-only-v1 — never restore agents outside the managed service.\n    throw new Error("herdr unavailable: start its managed service after Arc preflight", { cause: error });', 1)
 
 
+def relocate_ci_bin_link(member, stage):
+    """Relocate npm executable links from the known upstream CI checkout."""
+    stage = stage.resolve()
+    parts = Path(member.name).parts
+    ci_prefix = '/home/runner/work/herdr-web-ui/herdr-web-ui/node_modules/'
+    if (member.issym() and len(parts) >= 3 and parts[0] == 'node_modules'
+            and parts[-2] == '.bin' and member.linkname.startswith(ci_prefix)):
+        path = (stage / member.name).resolve()
+        target = (stage / 'node_modules' / member.linkname[len(ci_prefix):]).resolve()
+        if not path.is_relative_to(stage) or not target.is_relative_to(stage):
+            raise RuntimeError("Unsafe upstream archive link")
+        member.linkname = os.path.relpath(target, path.parent)
+
+
 def prepare_bridges(config):
     version = config["remote_bundle"]
     directory = Path.home()/".local/share/herdr-web-ui/remote-bundles"
@@ -81,11 +95,9 @@ def prepare_bridges(config):
                         if not path.is_relative_to(stage) or member.isdev() or member.isfifo():
                             raise RuntimeError("Unsafe upstream archive")
                         if member.issym() or member.islnk():
-                            # Upstream v16 contains absolute npm .bin links into its CI checkout.
+                            # Upstream contains absolute npm .bin links (including nested dependencies) into its CI checkout.
                             # Relocate only that known prefix; all other escaping links are rejected.
-                            ci_prefix = '/home/runner/work/herdr-web-ui/herdr-web-ui/node_modules/'
-                            if member.issym() and member.name.lstrip('./').startswith('node_modules/.bin/') and member.linkname.startswith(ci_prefix):
-                                member.linkname = os.path.relpath(stage/'node_modules'/member.linkname[len(ci_prefix):], path.parent)
+                            relocate_ci_bin_link(member, stage)
                             linked = (path.parent/member.linkname if member.issym() else stage/member.linkname).resolve()
                             if not linked.is_relative_to(stage): raise RuntimeError("Unsafe upstream archive link")
                     tar.extractall(stage)
