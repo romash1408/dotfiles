@@ -44,6 +44,8 @@ def main():
     ap.add_argument('--dir', default='dumps', help='куда сохранять дампы')
     ap.add_argument('--direction', choices=['up', 'down'], default='up', help='куда листать список')
     ap.add_argument('--max-screens', type=int, default=2000)
+    ap.add_argument('--start', type=int, default=0,
+                    help='номер первого дампа: продолжить съёмку порциями в ту же папку')
     ap.add_argument('--swipe-ms', type=int, default=1500, help='длительность свайпа; быстрее — риск инерции и пропусков')
     ap.add_argument('--pause', type=float, default=0.8, help='пауза после свайпа, сек')
     args = ap.parse_args()
@@ -55,7 +57,7 @@ def main():
     y1, y2 = (top, bottom) if args.direction == 'up' else (bottom, top)  # палец вниз = скролл вверх
 
     prev = None
-    for i in range(args.max_screens):
+    for i in range(args.start, args.start + args.max_screens):
         while True:
             xml = dump()
             sig = list_signature(xml, args.container)
