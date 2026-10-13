@@ -148,19 +148,21 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 ## arc
+export ARCADIA_ROOT=~/arcadia
 
-alias cdf="cd ~/arcadia/adv/frontend"
-alias cdb="cd ~/arcadia/direct"
-alias cdp="cd ~/arcadia/direct/perl"
-alias cdu="cd ~/arcadia/adv/frontend/services/uac"
-alias cdd="cd ~/arcadia/adv/frontend/services/dna"
-alias cdm="cd ~/arcadia/adv/frontend/packages/direct-modules"
+alias cda=$((arc root 2>/dev/null) || printf $ARCADIA_ROOT)
+alias cdf="cda && cd adv/frontend"
+alias cdb="cda && cd direct"
+alias cdp="cda && cd direct/perl"
+alias cdu="cda && cd adv/frontend/services/uac"
+alias cdd="cda && cd adv/frontend/services/dna"
+alias cdm="cda && cd adv/frontend/packages/direct-modules"
+alias cdg="cda && cd grut"
+alias cdl="cda && cd logos"
+
 alias atu="arc branch -f trunk arcadia/trunk && arc pull trunk && arc checkout trunk"
 alias abu="arc branch -f bc arcadia/app/direct-build-cache/mac-arm64-debug && arc pull bc && arc checkout bc"
-alias cdg="cd ~/arcadia/grut"
-alias cdl="cd ~/arcadia/logos"
 
-export ARCADIA_ROOT=~/arcadia
 JAVA_BIN=$(dirname $(ya tool java25 --print-path))
 export PATH=$JAVA_BIN:$PATH
 export JAVA_HOME=$(dirname $JAVA_BIN)
