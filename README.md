@@ -420,9 +420,9 @@ Initial setup also needs that refresh before the first run. OpenCode receives
 Mac paths in the review prompt and uses the same Python environment.
 
 Compaction supports macOS `libproc` process identity and the same verified
-checkpoint/native hook recovery protocol as Linux. Initial configuration leaves
-it disabled: enable only after native `/hooks` review and a successful compact
-pilot. Each session needs a callback bound to its current PID, microsecond
+checkpoint/native hook recovery protocol as Linux. The work Mac coordinator is enabled after native `/hooks` review and
+a successful DIRECT-344507 pilot on 2026-10-13 (11.5% → 6.0%). Master flags
+are an opt-in, and each session still needs its own native trust/readiness. Each session needs a callback bound to its current PID, microsecond
 creation epoch, UUID and cwd. Missing evidence leaves that session ineligible.
 `codex_homes` includes normal/recovery homes; `codex_home_patterns` discovers
 isolated `~/.codex-herdr-*` homes. Direct OpenCode script calls load this config,
