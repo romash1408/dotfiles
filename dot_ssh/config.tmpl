@@ -48,13 +48,16 @@ Host dev-mr
 Host prod-mr
   HostName direct-prod-migration-runner.klg.yp-c.yandex.net
 
+Host ppc
+  HostName communal-20.klg.yp-c.yandex.net
+
 Host dev
   ForwardAgent no
 
 Host dev-mr prod-mr *.yandex.net
   ForwardAgent ~/.skotty/sock/default.sock
 
-Host dev dev-mr prod-mr *.yandex.net
+Host dev dev-mr prod-mr ppc *.yandex.net
   IdentityAgent ~/.skotty/sock/default.sock
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
