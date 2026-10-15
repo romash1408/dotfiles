@@ -20,13 +20,15 @@ brews = ["tmux", "restic", "rsync"]
 casks = ["reaper"]  # станция «клавиши», см. keys-station.toml
 
 [packages.linux]
-# System (apt) packages for Linux: client/server tools that must match the
+# System (apt/apk) packages for Linux: client/server tools that must match the
 # system-side daemon (tmux: claude-remote's server runs /usr/bin/tmux), plus
 # things brew doesn't ship on Linux (net-tools).
 # The "already installed" check is `command -v <binary>`. When the package name
 # differs from the binary, write "package:binary" — net-tools gives ifconfig,
 # netstat and route.
 apt = ["tmux", "net-tools:ifconfig"]
+# Alpine Linux (musl/apk): same rationale as apt above.
+apk = ["tmux"]
 # Linux GUI apps (flatpak from flathub, "org.app.Id"), only when hasGUI
 flatpaks = []
 

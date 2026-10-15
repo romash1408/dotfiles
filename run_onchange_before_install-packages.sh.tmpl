@@ -20,15 +20,31 @@ echo "==> Packages done."
 {{ else -}}
 {{ if and (eq .chezmoi.os "linux") .packages.linux.apt -}}
 # apt packages first: installed even where brew is skipped (old glibc)
-_missing=""
+if command -v apt-get >/dev/null 2>&1; then
+  _missing=""
 {{ range .packages.linux.apt -}}
 {{ $pkg := . }}{{ $bin := . -}}
 {{ if contains ":" . }}{{ $pkg = (splitList ":" .) | first }}{{ $bin = (splitList ":" .) | last }}{{ end -}}
-command -v {{ $bin }} >/dev/null 2>&1 || _missing="$_missing {{ $pkg }}"
+  command -v {{ $bin }} >/dev/null 2>&1 || _missing="$_missing {{ $pkg }}"
 {{ end -}}
-if [ -n "$_missing" ]; then
-  echo "==> apt install:$_missing"
-  sudo apt-get install -y $_missing
+  if [ -n "$_missing" ]; then
+    echo "==> apt install:$_missing"
+    sudo apt-get install -y $_missing
+  fi
+fi
+{{ end -}}
+{{ if and (eq .chezmoi.os "linux") .packages.linux.apk -}}
+if command -v apk >/dev/null 2>&1; then
+  _missing=""
+{{ range .packages.linux.apk -}}
+{{ $pkg := . }}{{ $bin := . -}}
+{{ if contains ":" . }}{{ $pkg = (splitList ":" .) | first }}{{ $bin = (splitList ":" .) | last }}{{ end -}}
+  command -v {{ $bin }} >/dev/null 2>&1 || _missing="$_missing {{ $pkg }}"
+{{ end -}}
+  if [ -n "$_missing" ]; then
+    echo "==> apk add:$_missing"
+    apk add --no-cache $_missing
+  fi
 fi
 {{ end -}}
 
