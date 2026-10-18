@@ -73,6 +73,53 @@ class ActivationTests(unittest.TestCase):
 
 
 class ArcGateTests(unittest.TestCase):
+    def test_missing_yaml_reexecutes_in_existing_venv_without_bypassing_cwd_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            config = home / ".config/herdr"
+            config.mkdir(parents=True)
+            (config / "arc-preflight.json").write_text(json.dumps({
+                "enabled": True, "arc_prefixes": [], "timeout_seconds": 1,
+            }))
+            history = home / "history"
+            history.mkdir()
+            (history / "task.yaml").write_text("lifecycle_state: active\n")
+            env = dict(os.environ, HOME=tmp, XDG_CONFIG_HOME=str(home / ".config"),
+                       HERDR_HISTORY_DIR=str(history))
+            script = str(SOURCE / "dot_local/bin/executable_herdr-ensure-arc-mounts.tmpl")
+            # -S reproduces the service's Python without the installed PyYAML.
+            command = [sys.executable, "-S", script]
+            missing = subprocess.run(command, env=env, capture_output=True, timeout=10)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn(b"PyYAML is missing", missing.stderr)
+
+            fallback = home / ".local/share/dev-backup/validation-venv/bin/python3"
+            fallback.parent.mkdir(parents=True)
+            import shlex
+            fallback.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
+            fallback.chmod(0o755)
+            ready = subprocess.run(command, env=env, capture_output=True, timeout=10)
+            self.assertEqual(ready.returncode, 0, ready.stderr)
+            self.assertIn(b"checked 0 saved cwd", ready.stdout)
+
+            (history / "task.yaml").write_text(
+                "lifecycle_state: active\nproject_cwd: " + str(home / "missing") + "\n"
+            )
+            fakebin = home / "bin"
+            fakebin.mkdir()
+            arc = fakebin / "arc"
+            arc.write_text('#!/bin/sh\necho "[]"\n')
+            arc.chmod(0o755)
+            env["PATH"] = str(fakebin) + os.pathsep + env["PATH"]
+            blocked = subprocess.run(command, env=env, capture_output=True, timeout=10)
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertIn(b"refusing session restore", blocked.stderr)
+
+            fallback.write_text("#!/bin/sh\nexit 1\n")
+            broken = subprocess.run(command, env=env, capture_output=True, timeout=10)
+            self.assertNotEqual(broken.returncode, 0)
+            self.assertIn(b"PyYAML is missing", broken.stderr)
+
     def test_missing_saved_cwd_blocks_restore_and_empty_new_session_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             home=Path(tmp)

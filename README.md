@@ -317,7 +317,9 @@ the old standalone web-ui plugin is not needed.
 
 `herdr-ensure-arc-mounts` checks saved native session cwd values and active legacy
 herdr-history YAML records before the service starts. YAML history requires
-PyYAML; if records exist and the parser is missing, startup fails closed.
+PyYAML. If the default Python lacks it, the gate retries with the existing
+backup/watchdog venv at `~/.local/share/dev-backup/validation-venv`, after checking
+that it can import PyYAML. If neither interpreter provides it, startup fails closed.
 `~/.config/herdr/arc-preflight.json` selects known Arc prefixes and optional
 `required_paths`; registered custom mounts are also discovered with `arc mount
 --list --json`. Missing ordinary cwd values block restore too.

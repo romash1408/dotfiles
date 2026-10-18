@@ -46,6 +46,16 @@ def main():
         try:
             import yaml
         except ImportError:
+            # The work Mac keeps PyYAML in the existing backup/watchdog venv.
+            # launchd does not inherit the interactive shell's Python environment.
+            yaml_python = home / ".local/share/dev-backup/validation-venv/bin/python3"
+            if yaml_python.is_file() and Path(sys.prefix) != yaml_python.parent.parent:
+                check = subprocess.run(
+                    [str(yaml_python), "-c", "import yaml"],
+                    capture_output=True, timeout=5,
+                )
+                if check.returncode == 0:
+                    os.execv(str(yaml_python), [str(yaml_python), __file__, *sys.argv[1:]])
             raise RuntimeError("active history may be present but PyYAML is missing; install PyYAML before restoring")
         for record in records:
             value = yaml.safe_load(record.read_text()) or {}
