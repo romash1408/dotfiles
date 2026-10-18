@@ -324,8 +324,13 @@ that it can import PyYAML. If neither interpreter provides it, startup fails clo
 `required_paths`; registered custom mounts are also discovered with `arc mount
 --list --json`. Missing ordinary cwd values block restore too.
 
-No automatic remount, VPN change, `arc pull`, or fallback to `$HOME` is performed.
-Restore mount/network access and retry the service. `arc root` plus directory
+With `mount_registered: true`, the gate mounts only existing Arc registrations
+needed by saved cwd/history paths, retaining their store and object-store. It
+serializes startup mount attempts, skips mounted copies, and refuses missing
+storage or failed mounts. It never creates a checkout, replaces an overlay,
+changes VPN, runs `arc pull`, or falls back to `$HOME`.
+Once VPN is available, run `herdr` to mount the required copies and start/attach
+through the managed service; launchd also retries automatically. `arc root` plus directory
 reads prove only current local accessibility: cached data can remain available
 without VPN, and this gate cannot guarantee that the network stays up later.
 Existing agents are never killed when a check fails. The interactive herdr guard

@@ -8,10 +8,12 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 SOURCE = Path(__file__).resolve().parents[1]
 SYNC = importlib.machinery.SourceFileLoader("tools_sync", str(SOURCE/"dot_local/bin/executable_tools-sync")).load_module()
 WEB = importlib.machinery.SourceFileLoader("herdr_web_update", str(SOURCE/"dot_local/bin/executable_herdr-web-update")).load_module()
+GATE = importlib.machinery.SourceFileLoader("herdr_arc_gate", str(SOURCE/"dot_local/bin/executable_herdr-ensure-arc-mounts.tmpl")).load_module()
 
 
 class ActivationTests(unittest.TestCase):
@@ -73,6 +75,79 @@ class ActivationTests(unittest.TestCase):
 
 
 class ArcGateTests(unittest.TestCase):
+    def mount_entry(self, home, name, status="unmounted"):
+        store = home / "stores" / name
+        (store / ".arc/objects").mkdir(parents=True)
+        return {"mount": str(home / "worktrees" / name), "store": str(store),
+                "object-store": str(store / ".arc/objects"), "status": status, "problems": []}
+
+    def test_mounts_only_needed_registered_copies_and_keeps_storage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            wanted = self.mount_entry(home, "wanted")
+            unused = self.mount_entry(home, "unused")
+            mounted = self.mount_entry(home, "running", "mounted")
+            mounts = [wanted, unused, mounted]
+            original = {k: wanted[k] for k in ("store", "object-store")}
+            def run(argv, **kwargs):
+                self.assertEqual(argv, ["arc", "mount", wanted["mount"]])
+                wanted["status"] = "mounted"
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            with mock.patch.object(GATE, "registered_mounts", side_effect=lambda _: mounts), \
+                    mock.patch.object(GATE.subprocess, "run", side_effect=run) as command:
+                GATE.restore_registered_mounts(
+                    {wanted["mount"] + "/direct", wanted["mount"] + "/grut",
+                     mounted["mount"] + "/direct", str(home / "unregistered")}, home, 1)
+                command.assert_called_once()
+            self.assertEqual(unused["status"], "unmounted")
+            self.assertEqual({k: wanted[k] for k in original}, original)
+
+    def test_missing_registered_storage_never_creates_a_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            entry = self.mount_entry(home, "missing")
+            entry["store"] = str(home / "lost-store")
+            with mock.patch.object(GATE, "registered_mounts", return_value=[entry]), \
+                    mock.patch.object(GATE.subprocess, "run") as command:
+                with self.assertRaisesRegex(RuntimeError, "storage is missing"):
+                    GATE.restore_registered_mounts({entry["mount"] + "/direct"}, home, 1)
+                command.assert_not_called()
+
+    def test_failed_mount_blocks_restore_without_retry_or_overlay_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            entry = self.mount_entry(home, "offline")
+            for result in (subprocess.CompletedProcess([], 1, "", "network unavailable"),
+                           subprocess.TimeoutExpired("arc mount", 1)):
+                kwargs = {"side_effect": result} if isinstance(result, Exception) else {"return_value": result}
+                with mock.patch.object(GATE, "registered_mounts", return_value=[entry]), \
+                        mock.patch.object(GATE.subprocess, "run", **kwargs) as command:
+                    with self.assertRaises((RuntimeError, subprocess.TimeoutExpired)):
+                        GATE.restore_registered_mounts({entry["mount"] + "/direct"}, home, 1)
+                    self.assertEqual(command.call_args.args[0], ["arc", "mount", entry["mount"]])
+                    command.assert_called_once()
+
+    def test_changed_storage_after_mount_blocks_session_restore(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            entry = self.mount_entry(home, "changed")
+            changed = {**entry, "status": "mounted", "store": str(home / "other-store")}
+            with mock.patch.object(GATE, "registered_mounts", side_effect=[[entry], [changed]]), \
+                    mock.patch.object(GATE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")):
+                with self.assertRaisesRegex(RuntimeError, "did not preserve"):
+                    GATE.restore_registered_mounts({entry["mount"] + "/direct"}, home, 1)
+
+    def test_concurrent_startup_does_not_mount_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            lock_path = home / ".local/state/herdr/arc-startup.lock"
+            lock_path.parent.mkdir(parents=True)
+            with lock_path.open("a") as lock, mock.patch.object(GATE.subprocess, "run") as command:
+                GATE.fcntl.flock(lock, GATE.fcntl.LOCK_EX | GATE.fcntl.LOCK_NB)
+                with self.assertRaisesRegex(RuntimeError, "another Arc startup"):
+                    GATE.restore_registered_mounts({str(home / "worktree")}, home, 0)
+                command.assert_not_called()
+
     def test_missing_yaml_reexecutes_in_existing_venv_without_bypassing_cwd_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)

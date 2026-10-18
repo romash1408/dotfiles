@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Read-only startup gate. Never remount, pull, change VPN, or repair worktrees.
+"""Restore required registered mounts, then gate Herdr session restoration.
 
 Checks native session cwd values, active herdr-history records and explicit paths.
 Arc prefixes remain known even when their FUSE mounts have disappeared. A local
 arc probe checks only current accessibility, not future network availability.
+Never create a checkout, replace an overlay, pull, or change VPN.
 """
+import fcntl
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 
 def collect_cwds(value):
@@ -22,6 +25,71 @@ def collect_cwds(value):
     elif isinstance(value, list):
         for item in value:
             yield from collect_cwds(item)
+
+
+def registered_mounts(timeout):
+    result = subprocess.run(
+        ["arc", "mount", "--list", "--json"],
+        capture_output=True, text=True, timeout=timeout, check=True,
+    )
+    mounts = json.loads(result.stdout)
+    if not isinstance(mounts, list):
+        raise RuntimeError("Arc returned an invalid mount inventory")
+    return [m for m in mounts if isinstance(m, dict) and isinstance(m.get("mount"), str)]
+
+
+def contains_cwd(mount, cwd):
+    return cwd == mount or cwd.startswith(mount.rstrip(os.sep) + os.sep)
+
+
+def restore_registered_mounts(paths, home, timeout):
+    # The service and interactive guard can arrive together after login.
+    lock_dir = home / ".local/state/herdr"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    with (lock_dir / "arc-startup.lock").open("a") as lock:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("another Arc startup check is still mounting worktrees; retry")
+                time.sleep(0.1)
+        mounts = registered_mounts(timeout)
+        needed = set()
+        for cwd in paths:
+            matches = [m["mount"] for m in mounts if contains_cwd(m["mount"], cwd)]
+            if matches:
+                needed.add(max(matches, key=len))
+        for path in sorted(needed):
+            entries = [m for m in mounts if m["mount"] == path]
+            if len(entries) != 1:
+                raise RuntimeError("ambiguous registered Arc mount: " + path)
+            entry = entries[0]
+            if entry.get("status") == "mounted":
+                continue
+            if entry.get("status") != "unmounted" or entry.get("problems"):
+                raise RuntimeError("registered Arc mount needs attention: " + path)
+            # Refuse an incomplete registration instead of creating a fresh checkout.
+            for key in ("mount", "store", "object-store"):
+                value = entry.get(key)
+                if not isinstance(value, str) or not os.path.isabs(value) or value == os.sep:
+                    raise RuntimeError("invalid registered Arc " + key + ": " + path)
+            if not (Path(entry["store"]) / ".arc").is_dir() or not Path(entry["object-store"]).is_dir():
+                raise RuntimeError("registered Arc storage is missing: " + path)
+            result = subprocess.run(
+                ["arc", "mount", path], capture_output=True, text=True, timeout=timeout,
+            )
+            if result.returncode:
+                raise RuntimeError("cannot mount " + path + ": " + (result.stderr or result.stdout).strip()[-1000:])
+            current = [m for m in registered_mounts(timeout) if m["mount"] == path]
+            if len(current) != 1 or current[0].get("status") != "mounted" or any(
+                current[0].get(key) != entry[key] for key in ("store", "object-store")
+            ):
+                raise RuntimeError("Arc mount did not preserve its registered storage: " + path)
+            print("herdr preflight: mounted " + path, flush=True)
+        return registered_mounts(timeout)
 
 
 def main():
@@ -62,12 +130,15 @@ def main():
             if value.get("lifecycle_state") in ("active", "archiving") and value.get("project_cwd"):
                 paths.add(value["project_cwd"])
     timeout = settings.get("timeout_seconds", 20)
+    if any(not os.path.isabs(item) for item in paths):
+        raise RuntimeError("non-absolute saved cwd; refusing session restore")
     if paths:
         # Arc tracks custom mounts as well as ~/arcadia. Do not classify only by naming convention.
-        mounts = subprocess.run(["arc", "mount", "--list", "--json"], capture_output=True, text=True, timeout=timeout, check=True)
-        for mount in json.loads(mounts.stdout):
-            if isinstance(mount, dict) and isinstance(mount.get("mount"), str):
-                prefixes.append(os.path.abspath(mount["mount"]))
+        if settings.get("mount_registered", False):
+            mounts = restore_registered_mounts(paths, home, timeout)
+        else:
+            mounts = registered_mounts(timeout)
+        prefixes.extend(os.path.abspath(mount["mount"]) for mount in mounts)
     failures = []
     arc_count = 0
     for item in sorted(paths):
@@ -95,7 +166,7 @@ def main():
         except (OSError, subprocess.SubprocessError) as exc:
             failures.append(path + ": " + str(exc))
     if failures:
-        raise RuntimeError("refusing session restore:\n" + "\n".join(failures) + "\nRestore VPN/mount access and retry; no automatic remount was attempted.")
+        raise RuntimeError("refusing session restore:\n" + "\n".join(failures) + "\nRestore VPN/mount access and retry; no checkout or overlay was recreated.")
     print(f"herdr preflight: checked {len(paths)} saved cwd(s), {arc_count} Arc cwd(s)")
 
 
