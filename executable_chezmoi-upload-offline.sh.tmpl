@@ -68,11 +68,11 @@ else
 
   # Try a chezmoi version: download from GitHub (local machine has internet),
   # scp to remote, test. Returns 0 if the binary actually runs on the remote.
-  try_chezmoi_ver() {
-    local ver=$1 tmp candidate
+  try_chezmoi_asset() {
+    local ver=$1 platform=$2 tmp candidate
     tmp=$(mktemp)
     curl -fsSL \
-      "https://github.com/twpayne/chezmoi/releases/download/v${ver}/chezmoi_${ver}_${REMOTE_OS}_${REMOTE_ARCH}.tar.gz" \
+      "https://github.com/twpayne/chezmoi/releases/download/v${ver}/chezmoi_${ver}_${platform}_${REMOTE_ARCH}.tar.gz" \
       | tar -xzO chezmoi > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
     rsh "mkdir -p ~/.local/bin"
     candidate=$(rsh "mktemp '$REMOTE_HOME/.local/bin/.chezmoi-candidate.XXXXXX'")
@@ -88,6 +88,21 @@ else
       rsh "mv '$candidate' '$REMOTE_HOME/.local/bin/chezmoi'"
     else
       rsh "rm -f '$candidate'"
+      return 1
+    fi
+  }
+
+  try_chezmoi_ver() {
+    local ver=$1
+    if try_chezmoi_asset "$ver" "$REMOTE_OS"; then
+      return 0
+    fi
+    # Official static musl build works without the target's glibc.
+    # Try the same version before downgrading through older releases.
+    if [ "$REMOTE_OS" = linux ] && [ "$REMOTE_ARCH" = amd64 ]; then
+      warn "trying chezmoi ${ver} static musl build..."
+      try_chezmoi_asset "$ver" linux-musl
+    else
       return 1
     fi
   }
@@ -153,9 +168,18 @@ push_repo() {
   fi
 
   # Push
-  local branch
+  local branch remote_ref expected
   branch=$(git -C "$local_path" symbolic-ref --short HEAD 2>/dev/null || echo main)
-  git -C "$local_path" push "$ALIAS" "HEAD:${branch}" --force-with-lease
+  remote_ref="refs/heads/${branch}"
+  # The SSH alias may now point to a replacement machine. Local tracking refs
+  # still describe the old host, so take the lease from the actual push target.
+  # An empty expectation requires the branch to remain absent; concurrent
+  # changes after this query still cause the push to fail safely.
+  expected=$(git -C "$local_path" ls-remote --refs \
+    "$(git -C "$local_path" remote get-url --push "$ALIAS")" "$remote_ref")
+  expected=${expected%%[[:space:]]*}
+  git -C "$local_path" push "$ALIAS" "HEAD:${remote_ref}" \
+    "--force-with-lease=${remote_ref}:${expected}"
   ok "pushed"
 
   # Fix bare repo HEAD to point to the actual branch name — without this,

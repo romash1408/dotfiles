@@ -361,6 +361,11 @@ auto-commits and pushes to GitHub. Offline VMs are updated on the next
 A git remote named `new-host` is added to all managed repos. Future
 `chezmoi apply` runs on macOS push to it automatically.
 
+The upload script can also bootstrap a replacement machine under an existing
+SSH alias: push leases use the target's current branch, not cached tracking
+refs from the previous machine. On Linux amd64, if the regular chezmoi binary
+cannot run, it tries the same release's static musl build before older releases.
+
 ## Adding a new repo to offline sync
 
 Add one stanza to `.chezmoi.toml.tmpl`:
