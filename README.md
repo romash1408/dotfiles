@@ -338,6 +338,12 @@ routes startup through the service; service ExecStart must use the real binary,
 never the guard itself. Explicitly invoking an absolute vendor binary bypasses
 that shell guard.
 
+On the work Mac, the same PATH directory also routes Herdr's native
+`codex resume <UUID>` to its existing Codex home. It checks the local conversation
+indexes in `~/.codex`, `~/.codex-dev-recovery`, and `~/.codex-herdr-*`, preserving
+the arguments and any explicit `CODEX_HOME`. Ambiguous/unreadable indexes stop
+with a diagnostic. No sessions are copied and Herdr's native resume stays enabled.
+
 Safety regression tests: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`.
 
 | Task | Command |

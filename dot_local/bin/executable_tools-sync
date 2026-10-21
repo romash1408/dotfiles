@@ -60,6 +60,10 @@ if request["action"] == "inspect":
     tools = {}
     for name in request["tools"]:
         path = shutil.which(name)
+        # The Mac resume router delegates to Brew; inspect/update its vendor,
+        # never adopt the router itself as an independently installed Codex.
+        if name == "codex" and platform.system() == "Darwin" and path == str(home / ".local/lib/herdr-guard/codex"):
+            path = "/opt/homebrew/bin/codex"
         real = str(P(path).resolve()) if path else ""
         provider = "missing"
         if path:

@@ -28,6 +28,22 @@ class ActivationTests(unittest.TestCase):
 
     def tearDown(self): self.tmp.cleanup()
 
+    @unittest.skipUnless(sys.platform == "darwin", "work Mac resume router")
+    def test_codex_resume_router_keeps_brew_ownership(self):
+        router = self.home / ".local/lib/herdr-guard/codex"
+        router.parent.mkdir(parents=True)
+        router.write_text("#!/bin/sh\nexit 99\n")
+        router.chmod(0o755)
+        env = dict(self.env, PATH=str(router.parent) + os.pathsep + self.env["PATH"])
+        result = subprocess.run(
+            [sys.executable, "-c", SYNC.WORKER, json.dumps({"action": "inspect", "tools": ["codex"]})],
+            capture_output=True, env=env, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        tool = json.loads(result.stdout)["tools"]["codex"]
+        self.assertEqual(tool["path"], "/opt/homebrew/bin/codex")
+        self.assertEqual(tool["provider"], "brew")
+
     def bundle(self, version, executable_version=None):
         root = self.home/("source-" + version)
         (root/"bin").mkdir(parents=True)

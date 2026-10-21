@@ -12,6 +12,7 @@ tests
 {{ end }}
 
 {{ if not (and .work (eq .chezmoi.os "darwin")) }}
+.local/lib/herdr-guard/codex
 .local/bin/dev-backup
 .local/libexec/dev-backup
 .local/share/dev-backup

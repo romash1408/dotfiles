@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""Route Herdr's native Codex resume to the existing conversation store."""
+import os
+from contextlib import closing
+from pathlib import Path
+import re
+import sqlite3
+import sys
+
+REAL = "/opt/homebrew/bin/codex"
+UUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\Z")
+
+
+def resume_home(home, session_id):
+    isolated = sorted(p for p in home.glob(".codex-herdr-*") if not p.is_symlink() and p.is_dir())
+    if len(isolated) > 128:
+        raise RuntimeError("too many isolated Codex homes; set CODEX_HOME explicitly")
+    matches = set()
+    for candidate in [home / ".codex", home / ".codex-dev-recovery", *isolated]:
+        for database in candidate.glob("state_*.sqlite"):
+            try:
+                with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.5)) as db:
+                    row = db.execute("SELECT rollout_path FROM threads WHERE id = ?", (session_id,)).fetchone()
+            except sqlite3.Error as error:
+                raise RuntimeError("cannot read " + str(database) + "; set CODEX_HOME explicitly") from error
+            if row and isinstance(row[0], str) and Path(row[0]).is_file():
+                matches.add(candidate)
+    if len(matches) > 1:
+        raise RuntimeError("session exists in multiple Codex homes; set CODEX_HOME explicitly")
+    return next(iter(matches), None)
+
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    env = dict(os.environ)
+    # Preserve explicit choices, ordinary Codex launches, and the resume picker.
+    if env.get("HERDR_ENV") == "1" and "CODEX_HOME" not in env and args[:1] == ["resume"]:
+        ids = [arg.lower() for arg in args if UUID.fullmatch(arg)]
+        if len(ids) == 1:
+            selected = resume_home(Path.home(), ids[0])
+            if selected is not None:
+                env["CODEX_HOME"] = str(selected)
+    os.execve(REAL, [REAL, *args], env)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, RuntimeError) as error:
+        print("herdr Codex resume: " + str(error), file=sys.stderr)
+        sys.exit(1)
