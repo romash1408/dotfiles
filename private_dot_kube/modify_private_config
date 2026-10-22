@@ -1,0 +1,54 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /* Keep machine-local state (including current-context and OrbStack).
+      Return unchanged input verbatim: kubectl's YAML formatting must not
+      produce a diff after use-context or set-context --current. */ -}}
+{{- $original := .chezmoi.stdin | fromYaml | default dict -}}
+{{- $config := deepCopy $original -}}
+{{- $sources := list (include ".chezmoitemplates/kube-personal.json.age" | decrypt | fromJson) -}}
+{{- if .work -}}
+{{-   $sources = append $sources (include ".chezmoitemplates/kube-work.json.age" | decrypt | fromJson) -}}
+{{- end -}}
+{{- range $source := $sources -}}
+{{-   range $section := list "clusters" "users" "contexts" -}}
+{{-     $managed := dict -}}
+{{-     range (get $source $section | default list) -}}
+{{-       $_ := set $managed .name . -}}
+{{-     end -}}
+{{-     $entries := list -}}
+{{-     range (get $config $section | default list) -}}
+{{-       $entry := . -}}
+{{-       if hasKey $managed .name -}}
+{{-         $entry = deepCopy (get $managed .name) -}}
+{{- /* Namespace selection, like current-context, is local state. */ -}}
+{{-         if eq $section "contexts" -}}
+{{-           $_ := unset $entry.context "namespace" -}}
+{{-           if hasKey .context "namespace" -}}
+{{-             $_ := set $entry.context "namespace" .context.namespace -}}
+{{-           end -}}
+{{-         end -}}
+{{-         $_ := unset $managed .name -}}
+{{-       end -}}
+{{-       $entries = append $entries $entry -}}
+{{-     end -}}
+{{-     range (get $source $section | default list) -}}
+{{-       if hasKey $managed .name -}}
+{{-         $entries = append $entries . -}}
+{{-       end -}}
+{{-     end -}}
+{{-     $_ := set $config $section $entries -}}
+{{-   end -}}
+{{- end -}}
+{{- if not (hasKey $config "apiVersion") -}}
+{{-   $_ := set $config "apiVersion" "v1" -}}
+{{- end -}}
+{{- if not (hasKey $config "kind") -}}
+{{-   $_ := set $config "kind" "Config" -}}
+{{- end -}}
+{{- if not (hasKey $config "current-context") -}}
+{{-   $_ := set $config "current-context" "" -}}
+{{- end -}}
+{{- if deepEqual $original $config -}}
+{{-   .chezmoi.stdin -}}
+{{- else -}}
+{{-   $config | toYaml }}
+{{ end -}}

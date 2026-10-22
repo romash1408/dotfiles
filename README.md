@@ -123,6 +123,41 @@ ssh new-host "chmod 600 ~/.config/chezmoi/key.txt"
 > no need to pass it manually. On offline machines `chezmoi init` will fail
 > (no internet); use the offline flow below instead.
 
+## Kubernetes config
+
+`private_dot_kube/modify_private_config` manages parts of `~/.kube/config` (mode `0600`)
+using a [chezmoi modify template](https://www.chezmoi.io/user-guide/manage-different-types-of-file/#manage-part-but-not-all-of-a-file).
+The definitions and credentials are encrypted with the existing age key:
+
+- `.chezmoitemplates/kube-personal.json.age`: personal clusters and contexts.
+- `.chezmoitemplates/kube-work.json.age`: Yandex Team clusters, users and contexts;
+  read and decrypted only when `work=true`.
+
+`current-context` stays local. Switching contexts with `kubectl config use-context`
+does not create a chezmoi diff, and apply does not reset the selection. Context
+namespaces also stay local after a context has been created. On a fresh machine
+no context is selected automatically; choose one with `kubectl config use-context`.
+
+Unmanaged entries (for example, machine-local OrbStack credentials) are preserved
+and are not copied to other machines. The `work` flag controls provisioning, not
+removal of existing local entries: setting it to false does not purge previously
+installed work credentials. Removing an entry from an encrypted file also does
+not delete it from existing kubeconfigs; remove it there explicitly if needed.
+
+To update managed definitions or rotate credentials, edit the appropriate
+encrypted JSON, then apply only the kubeconfig:
+
+```sh
+chezmoi edit-encrypted "$(chezmoi source-path)/.chezmoitemplates/kube-personal.json.age"
+# or kube-work.json.age
+chezmoi apply ~/.kube/config
+```
+
+Keep `~/.kube` as a local directory, outside cloud drive sync. The former symlink
+to Yandex.Disk is no longer used. No shell exports or `KUBECONFIG` changes are needed.
+The `worship` user uses the existing `kubectl oidc-login` plugin, which must be
+installed separately on a new machine.
+
 ## New offline machine (Yandex VM, no internet)
 
 Run this **from your macOS work laptop** — it handles everything over SSH:
