@@ -53,9 +53,12 @@ def relocate_ci_bin_link(member, stage):
     """Relocate npm executable links from the known upstream CI checkout."""
     stage = stage.resolve()
     parts = Path(member.name).parts
-    ci_prefix = '/home/runner/work/herdr-web-ui/herdr-web-ui/node_modules/'
+    ci_prefix = next((prefix for prefix in (
+        '/home/runner/work/herdr-web-ui/herdr-web-ui/node_modules/',
+        '/home/runner/work/ovis/ovis/node_modules/',
+    ) if member.linkname.startswith(prefix)), None)
     if (member.issym() and len(parts) >= 3 and parts[0] == 'node_modules'
-            and parts[-2] == '.bin' and member.linkname.startswith(ci_prefix)):
+            and parts[-2] == '.bin' and ci_prefix is not None):
         path = (stage / member.name).resolve()
         target = (stage / 'node_modules' / member.linkname[len(ci_prefix):]).resolve()
         if not path.is_relative_to(stage) or not target.is_relative_to(stage):
@@ -70,7 +73,10 @@ def prepare_bridges(config):
     cache = Path.home()/".cache/herdr-web-bundles"
     cache.mkdir(parents=True, exist_ok=True)
     url = 'https://github.com/devswha/herdr-web-ui/releases/download/remote-v' + version + '/manifest.json'
-    with urllib.request.urlopen(url, timeout=45) as response: official = json.load(response)
+    official = json.loads(subprocess.check_output([
+        "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "3",
+        "--connect-timeout", "15", "--max-time", "60", url,
+    ]))
     if official["version"] != version: raise RuntimeError("Upstream bundle manifest version mismatch")
     manifest = {"version":version,"assets":{}}
     for platform in config["remote_platforms"]:
@@ -176,11 +182,17 @@ def apply(config):
             stage = Path(stage)
             run(["git", "init", "-q", str(stage)])
             run(["git", "-C", str(stage), "remote", "add", "origin", "https://github.com/devswha/herdr-web-ui.git"])
-            run(["git", "-C", str(stage), "fetch", "--depth=1", "origin", config["commit"]])
+            # Fetch runtime/build sources, not the site's screenshots and demo media.
+            # A promisor remote lets checkout fetch only the selected blobs.
+            run(["git", "-C", str(stage), "config", "http.version", "HTTP/1.1"])
+            run(["git", "-C", str(stage), "config", "remote.origin.promisor", "true"])
+            run(["git", "-C", str(stage), "config", "remote.origin.partialclonefilter", "blob:none"])
+            run(["git", "-C", str(stage), "sparse-checkout", "set", "--cone", "server", "shared", "integrations", "scripts", "src", "public", "patches"])
+            run(["git", "-C", str(stage), "fetch", "--filter=blob:none", "--depth=1", "origin", config["commit"]])
             run(["git", "-C", str(stage), "checkout", "-q", "--detach", "FETCH_HEAD"])
             actual = subprocess.check_output(["git", "-C", str(stage), "rev-parse", "HEAD"], text=True).strip()
             if actual != config["commit"]: raise RuntimeError("Source revision mismatch")
-            env = dict(os.environ, PATH=str(runtime/"node-bin") + ":" + os.environ["PATH"])
+            env = dict(os.environ, PATH=str(runtime/"node-bin") + ":" + str(bun.parent) + ":" + os.environ["PATH"])
             run([str(bun), "install", "--frozen-lockfile"], cwd=stage, env=env)
             run([str(bun), "run", "build"], cwd=stage, env=env)
             run([node, "-e", "require('@lydell/node-pty')"], cwd=stage)

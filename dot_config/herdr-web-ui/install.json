@@ -1,8 +1,8 @@
 {
-  "version": "0.4.8",
-  "commit": "cb65ecb9d1d251b42a6875427b6c7d0958150796",
+  "version": "0.4.16",
+  "commit": "4a4bdaab533c60ceaaaa62107e8ae145c7d26ef2",
   "bun": "1.4.2",
-  "remote_bundle": "27",
+  "remote_bundle": "35",
   "remote_platforms": ["linux-x64"],
   "machines": [
     {"name": "dev · работа", "destination": "dev"},
