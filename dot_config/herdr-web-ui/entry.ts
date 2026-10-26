@@ -1,4 +1,4 @@
-// launchd owns this process; tool updates go through the explicit chezmoi commands.
+// The user service owns this process; tool updates go through the explicit chezmoi commands.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -10,11 +10,13 @@ const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).ver
 process.env.HERDR_WEB_BOOT_ID = randomUUID();
 const { createServer } = await import(pathToFileURL(join(root, "server/index.ts")).href);
 const instance = createServer({
+  // A Linux full UI is also discoverable as the Mac's SSH bridge.
+  registerBridge: process.platform === "linux",
   updates: {
     status: () => ({
       managed: false, auto_update: false, phase: "idle", current_revision: process.env.HERDR_WEB_REVISION ?? null,
       current_version: version, latest_revision: null, latest_version: null, available: false,
-      checked_at: null, error: null, blocked_reason: "Updates are managed by herdr-web-update on this Mac.",
+      checked_at: null, error: null, blocked_reason: "Updates are managed by herdr-web-update.",
     }),
     request: () => { throw new Error("Use herdr-web-update"); },
   },
@@ -29,4 +31,4 @@ const shutdown = () => {
 };
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
-console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port} (launchd)`);
+console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port} (user service)`);

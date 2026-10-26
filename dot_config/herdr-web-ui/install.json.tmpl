@@ -1,0 +1,11 @@
+{
+  "version": "0.4.16",
+  "commit": "4a4bdaab533c60ceaaaa62107e8ae145c7d26ef2",
+  "bun": "1.4.2",
+  "remote_bundle": "35",
+  "remote_platforms": {{ if eq .chezmoi.os "darwin" }}["linux-x64"]{{ else }}[]{{ end }},
+  "machines": [{{ if eq .chezmoi.os "darwin" }}
+    {"name": "dev · работа", "destination": "dev"},
+    {"name": "hp · личное", "destination": "hp"}{{ end }}
+  ]
+}

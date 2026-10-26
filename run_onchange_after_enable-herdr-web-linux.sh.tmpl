@@ -1,0 +1,13 @@
+{{ if and (eq .chezmoi.os "linux") (get . "herdrWebUI") -}}
+#!/bin/sh
+set -eu
+# unit: {{ include "dot_config/systemd/user/herdr-web-ui.service.tmpl" | sha256sum }}
+systemctl --user daemon-reload
+systemctl --user enable herdr-web-ui.service
+# Never restart Herdr or an already running web UI during chezmoi apply.
+if [ -f "$HOME/.local/share/herdr-web-ui/current/dist/index.html" ]; then
+  systemctl --user start herdr-web-ui.service
+else
+  echo "Build Ovis with herdr-web-update --apply, then systemctl --user start herdr-web-ui.service"
+fi
+{{ end -}}

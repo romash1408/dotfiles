@@ -5,8 +5,8 @@
      unit нужен только там, где нужны переживающие логаут панели. */ -}}
 {{- $herdrServer := promptBoolOnce . "herdrServer" "Run herdr as a persistent user service (systemd/launchd)?" -}}
 {{- $herdrWebUI := false -}}
-{{- if eq .chezmoi.os "darwin" -}}
-{{- $herdrWebUI = promptBoolOnce . "herdrWebUI" "Run the local herdr web UI on this Mac?" -}}
+{{- if and (or (eq .chezmoi.os "darwin") (eq .chezmoi.os "linux")) (not $offline) -}}
+{{- $herdrWebUI = promptBoolOnce . "herdrWebUI" "Run the local herdr web UI on this machine?" -}}
 {{- end -}}
 
 encryption = "age"

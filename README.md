@@ -302,6 +302,22 @@ SSH authentication. `dev-mr`, `prod-mr` and `*.yandex.net` retain agent forwardi
 Logs are `~/Library/Logs/herdr.log` and `herdr-web-ui.log`. No web password/token is
 configured while the UI is bound to localhost.
 
+### Linux web UI (hp)
+
+`herdrWebUI=true` also installs `herdr-web-ui.service` as a systemd user service.
+Build with `herdr-web-update --apply`, then `systemctl --user start herdr-web-ui`.
+Its launcher/state/pinned app version are shared with the Mac; Linux defaults to
+no remote PCs and prepares no unnecessary remote bundles. The full UI registers
+as an SSH bridge, so the Mac can reuse it. Update both apps together when their
+remote bundle protocol changes; update hp through its own updater, never replace
+its independently supervised server from the Mac's bridge-update dialog.
+Herdr stays in its separate service and is never restarted by a web UI update.
+
+On hp, infra's `playbooks/herdr-web.yml` exposes loopback `:7317` only on hp's WG
+address. Caddy protects `herdr-hp.dybin.in` with the existing web password. The main
+`herdr.dybin.in` stays on the Mac; a failed HTML navigation redirects to hp, while
+API requests and WebSockets never fail over across the independent app instances.
+
 ### Persistent work-Mac connection to dev
 
 On a work Mac, `chezmoi apply` installs and starts `local.dev-link`. Its runner is

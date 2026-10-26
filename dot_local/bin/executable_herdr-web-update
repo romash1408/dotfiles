@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Build the pinned Mac web UI; explicitly connect/update remote bridges.
+"""Build the pinned web UI; explicitly connect/update remote bridges.
 
 Default: show desired/current release. --apply: prepare and switch the app,
-restart ONLY its LaunchAgent. --connect: reconcile configured remote PCs using
+restart ONLY its user service. --connect: reconcile configured remote PCs using
 the app's own setup API. --update-bridges: also approve required bridge updates.
 Never answers SSH secret or unknown-host-key prompts automatically.
 """
@@ -200,7 +200,7 @@ def apply(config):
             if 'REMOTE_BUNDLE_VERSION = "' + config["remote_bundle"] + '"' not in machines:
                 raise RuntimeError("Pinned app and remote bundle versions disagree")
             os.rename(stage, release)
-    prepare_bridges(config)
+    if config["remote_platforms"]: prepare_bridges(config)
     current = root/"current"
     previous = str(current.resolve()) if current.exists() else None
     temporary = root/"current.next"
@@ -213,10 +213,18 @@ def apply(config):
     state = Path.home()/".config/herdr-web-ui"
     state.mkdir(parents=True, exist_ok=True)
     (state/"machine-settings.json").write_text(json.dumps({"auto_update_bridges":False}) + "\n")
-    service = "gui/" + str(os.getuid()) + "/local.herdr-web-ui"
-    active = subprocess.run(["launchctl", "print", service], capture_output=True).returncode == 0
+    if sys.platform == "darwin":
+        service = "gui/" + str(os.getuid()) + "/local.herdr-web-ui"
+        check_service = ["launchctl", "print", service]
+        restart_service = ["launchctl", "kickstart", "-k", service]
+    elif sys.platform.startswith("linux"):
+        check_service = ["systemctl", "--user", "is-active", "--quiet", "herdr-web-ui.service"]
+        restart_service = ["systemctl", "--user", "restart", "herdr-web-ui.service"]
+    else:
+        raise RuntimeError("Only macOS and Linux user services are supported")
+    active = subprocess.run(check_service, capture_output=True).returncode == 0
     if active:
-        run(["launchctl", "kickstart", "-k", service])
+        run(restart_service)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             try:
@@ -227,7 +235,7 @@ def apply(config):
         else:
             if previous:
                 temporary.symlink_to(previous); temporary.replace(current)
-                run(["launchctl", "kickstart", "-k", service])
+                run(restart_service)
             raise RuntimeError("Web UI health check failed; previous app restored when available")
     print("Prepared " + str(release) + "; herdr itself was not restarted.")
 
