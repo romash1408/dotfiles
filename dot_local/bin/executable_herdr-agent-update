@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Update existing agent installations once, before Herdr restores its panes."""
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+
+def installations(home):
+    result = {}
+    for name in ("codex", "claude"):
+        command = shutil.which(name)
+        if command == str(home / ".local/lib/herdr-guard/codex"):
+            command = "/opt/homebrew/bin/codex" if sys.platform == "darwin" else str(home / ".local/bin/codex")
+        if not command or not Path(command).is_file():
+            raise RuntimeError(name + " is not installed; install it before starting Herdr")
+        resolved = Path(command).resolve()
+        if "Caskroom" in resolved.parts:
+            provider = "brew-cask"
+            package = resolved.parts[resolved.parts.index("Caskroom") + 1]
+            allowed = ("codex",) if name == "codex" else ("claude-code", "claude-code@latest")
+            if package not in allowed:
+                raise RuntimeError("Unrecognized Homebrew cask for " + name)
+        elif str(resolved).startswith(str(home / ".local/share/tools-sync") + "/"):
+            provider, package = "tools-sync", name
+        elif name == "claude" and str(resolved).startswith(str(home / ".local/share/claude/versions") + "/"):
+            provider, package = "claude-native", name
+        else:
+            raise RuntimeError("Unsupported agent installation: " + name + " at " + str(resolved)
+                               + "; keep its package manager and add an explicit update recipe")
+        result[name] = {"command": command, "provider": provider, "package": package}
+    return result
+
+
+def update(plan, home, timeout):
+    env = dict(os.environ, HOMEBREW_NO_AUTO_UPDATE="1", HOMEBREW_NO_INSTALL_CLEANUP="1",
+               HOMEBREW_NO_ENV_HINTS="1", NONINTERACTIVE="1")
+    def run(args):
+        print("herdr agent update: " + " ".join(args), flush=True)
+        with subprocess.Popen(args, env=env, cwd=home, stdin=subprocess.DEVNULL,
+                              start_new_session=True) as process:
+            try:
+                code = process.wait(timeout=timeout)
+            except BaseException:
+                # Stop only this updater's group, never an existing agent/server.
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    process.wait(timeout=5)
+                except ProcessLookupError:
+                    pass
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+                raise
+            if code:
+                raise subprocess.CalledProcessError(code, args)
+    casks = [item["package"] for item in plan.values() if item["provider"] == "brew-cask"]
+    if casks:
+        brew = shutil.which("brew")
+        if not brew:
+            raise RuntimeError("Homebrew is not on the service PATH")
+        run([brew, "update"])
+        run([brew, "upgrade", "--cask", "--greedy", *casks])
+    for name, item in plan.items():
+        if item["provider"] == "tools-sync":
+            run([str(home / ".local/bin/tools-sync"), "local", "--tool", name, "--latest", "--apply"])
+        elif item["provider"] == "claude-native":
+            run([item["command"], "update"])
+    versions = {}
+    for name, item in plan.items():
+        result = subprocess.run([item["command"], "--version"], check=True, timeout=30,
+                                capture_output=True, text=True, env=env, cwd=home, stdin=subprocess.DEVNULL)
+        versions[name] = result.stdout.strip()
+        if not versions[name]:
+            raise RuntimeError(name + " returned no version after its update")
+    return versions
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="show installation owners without updating")
+    args = parser.parse_args()
+    home = Path.home()
+    config = json.loads((home / ".config/herdr/agent-updates.json").read_text())
+    if not config["enabled"]:
+        print("herdr agent update: disabled here; keep the offline tools-sync catalog")
+        return
+    plan = installations(home)
+    if args.check:
+        print(json.dumps(plan, indent=2))
+        return
+    state = home / ".local/state/herdr"
+    state.mkdir(parents=True, exist_ok=True)
+    with (state / "agent-update.lock").open("a") as lock:
+        # A duplicate startup must not race package-manager symlink switches.
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        record = {"started_at": time.time(), "providers": plan, "ok": False}
+        target = state / "agent-update.json"
+        def save():
+            temporary = target.with_suffix(".tmp")
+            temporary.write_text(json.dumps(record, indent=2) + "\n")
+            temporary.replace(target)
+        save()
+        try:
+            record["versions"] = update(plan, home, config["command_timeout_seconds"])
+            record["ok"] = True
+        except Exception as error:
+            record["error"] = str(error)
+            raise
+        finally:
+            record["finished_at"] = time.time()
+            save()
+        print("herdr agent update: ready " + json.dumps(record["versions"]), flush=True)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print("herdr agent update: " + str(error) + "; Herdr was not started", file=sys.stderr)
+        sys.exit(1)

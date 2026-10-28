@@ -27,7 +27,7 @@ if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != "yes" ]; t
   sudo loginctl enable-linger "$USER"
 fi
 # Намеренно без restart: он убил бы все панели вместе с запущенными агентами.
-# Изменившийся юнит подхватится при следующем входе.
+# Изменившийся юнит подхватится при следующем старте сервера (linger переживает входы).
 if [ ! -x "{{ $serverBin }}" ]; then
   echo "==> herdr binary is not installed yet; unit enabled but not started."
   echo "    Install it with tools-sync, then: systemctl --user start herdr.service"

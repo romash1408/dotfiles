@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+# Private launchd entry: do not call the public demand-start launcher recursively.
+export PATH="{{ .chezmoi.homeDir }}/.local/lib/herdr-guard:{{ .chezmoi.homeDir }}/.local/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+cd "$HOME"
+{{ if not .offline -}}
+"$HOME/.local/bin/herdr-agent-update"
+export HERDR_MANAGED_AGENT_UPDATES=1 DISABLE_AUTOUPDATER=1
+{{ end -}}
+"$HOME/.local/bin/herdr-ensure-arc-mounts"
+{{ if eq .chezmoi.os "darwin" -}}
+exec /opt/homebrew/bin/herdr server
+{{ else if .offline -}}
+exec "$HOME/.local/bin/herdr" server
+{{ else -}}
+exec /home/linuxbrew/.linuxbrew/bin/herdr server
+{{ end -}}

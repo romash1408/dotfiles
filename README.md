@@ -273,9 +273,14 @@ machine. Bootstrap enables the unit but leaves it stopped while the binary is ab
 ### Mac web UI and remote PCs
 
 On the designated Mac set `herdrServer = true` and `herdrWebUI = true` in chezmoi
-data. `Library/LaunchAgents/local.herdr.plist` starts local herdr;
-`local.herdr-web-ui.plist` independently supervises the web UI on `127.0.0.1:7317`.
-These are login-user services: closing a terminal does not stop them, but logging
+data. After login run **`herdr-service-run`** explicitly. Nothing starts on login:
+the launchd plists live in `~/.config/herdr/launchd/`, outside `Library/LaunchAgents`.
+The launcher bootstraps `local.herdr`, waits for its socket, then bootstraps
+`local.herdr-web-ui` on `127.0.0.1:7317`. Both remain supervised by launchd after
+the terminal closes. A plain `herdr` refuses client autostart until this explicit
+start. `chezmoi apply` removes the old autoload plists without stopping live jobs;
+the changed startup policy takes full effect on the next login. These are
+login-user services: closing a terminal does not stop them, but logging
 out or sleeping/shutting down the Mac interrupts the central UI. Remote agents
 continue under their existing systemd services.
 
@@ -312,6 +317,26 @@ as an SSH bridge, so the Mac can reuse it. Update both apps together when their
 remote bundle protocol changes; update hp through its own updater, never replace
 its independently supervised server from the Mac's bridge-update dialog.
 Herdr stays in its separate service and is never restarted by a web UI update.
+
+### Agent updates before session restoration
+
+On online Mac/Linux servers, `herdr-agent-update` runs before Herdr can restore
+any saved pane. Mac uses the existing Homebrew casks (`brew update`, then a
+targeted `brew upgrade --cask --greedy`); hp uses native `claude update` and
+`tools-sync local --tool codex --latest --apply`. The explicit `local`/`--latest`
+tools-sync mode resolves the stable npm dist-tag through the configured registry,
+retains atomic activation/rollback, and does not rewrite the pinned offline
+catalog. No apt/brew/pkg ownership is adopted, no Herdr binary is upgraded.
+
+`herdr-agent-update --check` shows the detected installation owners. An unknown
+provider or failed/timed-out update blocks startup; the manager retries after
+about a minute. Logs stay in the service log/journal, and the last update result
+is `~/.local/state/herdr/agent-update.json`. Offline machines keep their pinned
+delivery workflow; Termux is unchanged. Started agents inherit
+`DISABLE_AUTOUPDATER=1`, while the managed Codex wrapper disables the per-resume
+update modal (`check_for_update_on_startup=false`), including isolated homes.
+The update runs once per server start, never for every pane. Already-running
+servers and agents are not restarted by installing this configuration.
 
 On hp, infra's `playbooks/herdr-web.yml` exposes loopback `:7317` only on hp's WG
 address. Caddy protects `herdr-hp.dybin.in` with the existing web password. The main

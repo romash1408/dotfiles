@@ -12,7 +12,6 @@ tests
 {{ end }}
 
 {{ if not (and .work (eq .chezmoi.os "darwin")) }}
-.local/lib/herdr-guard/codex
 .local/bin/dev-backup
 .local/libexec/dev-backup
 .local/share/dev-backup
@@ -22,6 +21,10 @@ Library/LaunchAgents/local.dev-link.plist
 .local/bin/herdr-watchdog
 .local/libexec/herdr-watchdog
 .config/herdr-watchdog
+{{ end }}
+
+{{ if not (or (and .work (eq .chezmoi.os "darwin")) (and .herdrServer (eq .chezmoi.os "linux") (not .offline))) }}
+.local/lib/herdr-guard/codex
 {{ end }}
 
 {{ if ne .chezmoi.os "darwin" }}
@@ -49,10 +52,10 @@ chezmoi-upload-offline.sh
 {{ end }}
 
 {{ if or (ne .chezmoi.os "darwin") (not .herdrServer) }}
-Library/LaunchAgents/local.herdr.plist
+.config/herdr/launchd/local.herdr.plist
 {{ end }}
 {{ if or (ne .chezmoi.os "darwin") (not (get . "herdrWebUI")) }}
-Library/LaunchAgents/local.herdr-web-ui.plist
+.config/herdr/launchd/local.herdr-web-ui.plist
 {{ end }}
 {{ if or (ne .chezmoi.os "linux") (not (get . "herdrWebUI")) }}
 .config/systemd/user/herdr-web-ui.service
@@ -67,8 +70,11 @@ Library/LaunchAgents/local.herdr-web-ui.plist
 .local/bin/tools-sync
 .local/bin/herdr-ensure-arc-mounts
 .local/bin/herdr-service-run
+.local/bin/herdr-agent-update
+.local/libexec/herdr-server-run
 .local/lib/herdr-guard
 .config/herdr/arc-preflight.json
+.config/herdr/agent-updates.json
 .config/tools-sync
 {{ end }}
 

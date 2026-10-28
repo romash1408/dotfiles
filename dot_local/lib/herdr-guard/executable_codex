@@ -7,7 +7,7 @@ import re
 import sqlite3
 import sys
 
-REAL = "/opt/homebrew/bin/codex"
+REAL = "/opt/homebrew/bin/codex" if sys.platform == "darwin" else str(Path.home() / ".local/bin/codex")
 UUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\Z")
 
 
@@ -34,13 +34,17 @@ def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     env = dict(os.environ)
     # Preserve explicit choices, ordinary Codex launches, and the resume picker.
-    if env.get("HERDR_ENV") == "1" and "CODEX_HOME" not in env and args[:1] == ["resume"]:
+    if sys.platform == "darwin" and env.get("HERDR_ENV") == "1" and "CODEX_HOME" not in env and args[:1] == ["resume"]:
         ids = [arg.lower() for arg in args if UUID.fullmatch(arg)]
         if len(ids) == 1:
             selected = resume_home(Path.home(), ids[0])
             if selected is not None:
                 env["CODEX_HOME"] = str(selected)
-    os.execve(REAL, [REAL, *args], env)
+    # Updates happen once before the managed server restores any panes, including
+    # those with isolated CODEX_HOME. Do not show an update modal in every resume.
+    managed = env.get("HERDR_MANAGED_AGENT_UPDATES") == "1" and env.get("HERDR_ENV") == "1"
+    overrides = ["-c", "check_for_update_on_startup=false"] if managed else []
+    os.execve(REAL, [REAL, *overrides, *args], env)
 
 
 if __name__ == "__main__":

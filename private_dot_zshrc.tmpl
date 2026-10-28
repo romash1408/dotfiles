@@ -184,3 +184,10 @@ export CHROME_EXECUTABLE="/Applications/Arc.app/Contents/MacOS/Arc"
 # Keep this after nvm/Homebrew PATH setup: client autostart must pass the service's Arc gate.
 export PATH="$HOME/.local/lib/herdr-guard:$PATH"
 {{ end -}}
+
+{{ if and .herdrServer (eq .chezmoi.os "linux") (not .work) (not .offline) -}}
+# Keep the managed Codex wrapper after nvm/Homebrew PATH changes in restored panes.
+if [ "${HERDR_ENV:-}" = 1 ]; then
+  export PATH="$HOME/.local/lib/herdr-guard:$PATH"
+fi
+{{ end -}}

@@ -1,0 +1,5 @@
+{{ if eq .chezmoi.os "darwin" -}}
+# Jobs are bootstrapped explicitly from ~/.config/herdr/launchd after login.
+Library/LaunchAgents/local.herdr.plist
+Library/LaunchAgents/local.herdr-web-ui.plist
+{{ end -}}

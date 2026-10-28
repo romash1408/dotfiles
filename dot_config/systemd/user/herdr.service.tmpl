@@ -7,6 +7,9 @@
 {{- $bin := dir $herdr -}}
 [Unit]
 Description=Herdr terminal workspace server (persistent AI-agent panes)
+{{ if not .offline -}}
+StartLimitIntervalSec=0
+{{ end -}}
 Documentation=https://herdr.dev
 # Намеренно на default.target, а НЕ на graphical-session.target — даже на
 # машинах с GUI.
@@ -36,13 +39,22 @@ Type=exec
 # (на системный network-online.target user-юнит сослаться не может), и панели
 # поднимали `claude --resume` в пустую сеть: агенты крутили getaddrinfo без паузы,
 # на hp это тысячи DNS-запросов за 5–10 с загрузки (17 сен 2026 — 2 828 ошибок в
-# AdGuard). Выход всегда 0: без интернета herdr всё равно поднимется, через 60 с.
+# AdGuard). DNS-проверка сама по себе не запрещает старт; далее отдельный gate обновлений.
 # `$$` — экранирование для systemd, в шелл приезжает `$(seq 60)`.
 ExecStartPre=/bin/sh -c 'for i in $$(seq 60); do getent ahosts api.anthropic.com >/dev/null && exit 0; sleep 1; done; exit 0'
+{{ if not .offline -}}
+# Update once before saved agents resume. Failure keeps sessions saved for retry.
+ExecStartPre=%h/.local/bin/herdr-agent-update
+Environment=HERDR_MANAGED_AGENT_UPDATES=1 DISABLE_AUTOUPDATER=1
+{{ end -}}
 {{ if .work -}}
 # Arc/FUSE may be absent or unhealthy on ANY work machine (VPN/network/mount).
-# Read-only gate: never resume agents in a fallback cwd, never remount automatically.
+# Restore only registered mounts and refuse an unavailable saved cwd.
 ExecStartPre=%h/.local/bin/herdr-ensure-arc-mounts
+{{ end -}}
+{{ if not .offline -}}
+TimeoutStartSec=20min
+{{ else if .work -}}
 TimeoutStartSec=10min
 {{ end -}}
 ExecStart={{ $herdr }} server
@@ -55,13 +67,13 @@ KillMode=mixed
 # юнит ушёл бы в inactive, а следующий `herdr` поднял бы сервер снова внутри
 # session-scope — и проблема с persist.clear вернулась бы.
 Restart=always
-RestartSec=2
+RestartSec={{ if .offline }}2{{ else }}60{{ end }}
 # В session-scope у herdr был TasksMax=infinity, в юните он получает
 # DefaultTasksMax (23657 на hp). См. herdrdev/herdr#3324: при упоре в TasksMax
 # сервер падает по fork/EAGAIN и шлёт SIGHUP всем панелям, без ошибки в логе.
 # Бэкстопом остаётся user-<uid>.slice.
 TasksMax=infinity
-Environment=PATH={{ $bin }}:%h/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+Environment=PATH=%h/.local/lib/herdr-guard:{{ $bin }}:%h/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 
 [Install]
 WantedBy=default.target

@@ -62,8 +62,8 @@ if request["action"] == "inspect":
         path = shutil.which(name)
         # The Mac resume router delegates to Brew; inspect/update its vendor,
         # never adopt the router itself as an independently installed Codex.
-        if name == "codex" and platform.system() == "Darwin" and path == str(home / ".local/lib/herdr-guard/codex"):
-            path = "/opt/homebrew/bin/codex"
+        if name == "codex" and path == str(home / ".local/lib/herdr-guard/codex"):
+            path = "/opt/homebrew/bin/codex" if platform.system() == "Darwin" else str(home / ".local/bin/codex")
         real = str(P(path).resolve()) if path else ""
         provider = "missing"
         if path:
@@ -194,6 +194,11 @@ def run(args, **kw):
 
 
 def remote(host, request, payload=None):
+    if host == "local":
+        with open(payload, "rb") if payload else open(os.devnull, "rb") as source:
+            result = run([sys.executable, "-c", WORKER, json.dumps(request)],
+                         stdin=source, stdout=subprocess.PIPE, text=True)
+        return json.loads(result.stdout.strip().splitlines()[-1])
     code = "python3 -c " + shlex.quote(WORKER) + " " + shlex.quote(json.dumps(request))
     # Login+interactive shell discovers the user's nvm and guard without copying credentials.
     command = '"$SHELL" -lic ' + shlex.quote(code)
@@ -294,7 +299,7 @@ def make_bundle(name, spec, target, cache):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("host", help="SSH alias; no changes by default")
+    parser.add_argument("host", help="SSH alias, or local; no changes by default")
     parser.add_argument("--group", action="append", choices=["common", "agents"])
     parser.add_argument("--tool", action="append")
     parser.add_argument("--catalog", type=Path, default=Path.home()/".config/tools-sync/catalog.json")
@@ -304,11 +309,25 @@ def main():
     mode.add_argument("--rollback", action="store_true", help="switch to previous managed release")
     parser.add_argument("--adopt", action="store_true", help="adopt existing user/npm executable, retaining original")
     parser.add_argument("--allow-downgrade", action="store_true")
+    parser.add_argument("--latest", action="store_true", help="explicitly resolve latest stable npm versions; leave the pinned catalog unchanged")
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@:-]*", args.host): parser.error("Invalid SSH destination")
     catalog = json.loads(args.catalog.read_text())
     names = list(dict.fromkeys((args.tool or []) + [n for g in (args.group or ([] if args.tool else ["agents"])) for n in catalog["groups"][g]]))
     if any(n not in catalog["tools"] for n in names): parser.error("Unknown tool")
+    if args.latest:
+        for name in names:
+            spec = catalog["tools"][name]
+            if spec["kind"] != "npm":
+                parser.error("--latest supports npm agent tools only; select --tool codex or --tool claude")
+            # Respect this machine's existing npm registry/mirror. Never modify the offline catalog.
+            result = run(["npm", "view", spec["package"], "dist-tags.latest", "--json",
+                          "--fetch-retries=0", "--fetch-timeout=20000"],
+                         capture_output=True, text=True, timeout=45)
+            version = json.loads(result.stdout)
+            if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+                raise RuntimeError("Invalid latest stable npm version for " + name)
+            spec["version"] = version
     info = remote(args.host, {"action": "inspect", "tools": names})
     print(args.host + ": " + info["os"] + "-" + info["arch"] + " libc=" + " ".join(info["libc"]), flush=True)
     for name in names:

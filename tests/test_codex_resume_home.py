@@ -61,6 +61,13 @@ class ResumeHomeTests(unittest.TestCase):
         _, _, env = self.launch(["resume", SESSION], CODEX_HOME="/chosen/home")
         self.assertEqual(env["CODEX_HOME"], "/chosen/home")
 
+    def test_managed_updates_disable_modal_for_explicit_isolated_home(self):
+        _, argv, env = self.launch(["resume", SESSION], CODEX_HOME="/chosen/home",
+                                   HERDR_MANAGED_AGENT_UPDATES="1")
+        self.assertEqual(argv[1:3], ["-c", "check_for_update_on_startup=false"])
+        self.assertEqual(argv[3:], ["resume", SESSION])
+        self.assertEqual(env["CODEX_HOME"], "/chosen/home")
+
     def test_outside_herdr_fresh_launch_and_picker_are_unchanged(self):
         self.store(".codex-dev-recovery")
         for args, extra in [(["resume", SESSION], {"HERDR_ENV": "0"}),

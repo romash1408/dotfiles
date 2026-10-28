@@ -1,5 +1,11 @@
 #!/bin/sh
 set -eu
+if [ "$(uname -s)" = Darwin ]; then
+  /opt/homebrew/bin/herdr status server 2>/dev/null | grep -q 'status: running' || {
+    echo "Start Herdr first with herdr-service-run." >&2
+    exit 1
+  }
+fi
 root="$HOME/.local/share/herdr-web-ui"
 export PATH="$HOME/.local/lib/herdr-guard:$root/runtime/node-bin:$root/runtime/node_modules/.bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export HOST=127.0.0.1 PORT=7317 HERDR_WEB_AUTO_UPDATE=0
