@@ -434,6 +434,12 @@ authoritative. `.codex/.herdr-canonical-home.json` records the archive and narro
 per-session overrides, including previously disabled resource-policy hooks.
 Herdr's own saved UUIDs and native resume remain the restoration mechanism.
 
+If Codex exits during network-dependent account bootstrap, Herdr can clear the
+saved agent identity when the process ends. Keep a pre-maintenance UUID snapshot;
+a subsequent server restart alone may not retry those failed sessions. Inspect
+the terminal error and resume the same UUID in its existing shell pane once the
+network is back, rather than creating duplicate conversations or workspaces.
+
 Safety regression tests: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`.
 
 | Task | Command |
