@@ -53,7 +53,7 @@ Environment=HERDR_MANAGED_AGENT_UPDATES=1 DISABLE_AUTOUPDATER=1
 ExecStartPre=%h/.local/bin/herdr-ensure-arc-mounts
 {{ end -}}
 {{ if not .offline -}}
-TimeoutStartSec=20min
+TimeoutStartSec=65min
 {{ else if .work -}}
 TimeoutStartSec=10min
 {{ end -}}

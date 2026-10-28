@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -21,6 +22,7 @@ def render(path):
                                    input=(SOURCE / path).read_text(), text=True, cwd=SOURCE)
 
 
+@unittest.skipUnless(sys.platform == "darwin", "Mac launchd startup")
 class StartupTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

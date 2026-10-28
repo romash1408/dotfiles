@@ -32,7 +32,7 @@ if ! /opt/homebrew/bin/herdr status server 2>/dev/null | grep -q 'status: runnin
         exit 1
       fi
     fi
-    if [ "$attempt" -ge 900 ]; then
+    if [ "$attempt" -ge 4500 ]; then
       echo "Herdr is not ready; see $HOME/Library/Logs/herdr.log" >&2
       exit 1
     fi
