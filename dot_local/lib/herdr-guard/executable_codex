@@ -37,10 +37,15 @@ def migrated_hook_overrides(home, args):
     data = json.loads(marker.read_text())
     overrides = []
     settings = data.get("session_overrides", {}).get(ids[0], {})
+    disabled = []
     for key in settings.get("disabled_hooks", []):
         if not isinstance(key, str) or not key.startswith(str(home / ".codex/hooks.json") + ":"):
             raise RuntimeError("invalid migrated hook override")
-        overrides += ["-c", "hooks.state." + json.dumps(key) + ".enabled=false"]
+        disabled.append(json.dumps(key) + "={enabled=false}")
+    if disabled:
+        # Codex's CLI splits dotted override keys inside quoted filesystem paths.
+        # An inline TOML table preserves the literal hook key and merges the state.
+        overrides += ["-c", "hooks.state={" + ",".join(disabled) + "}"]
     if settings.get("resume_cwd") == "session":
         overrides += ["-c", 'tui.resume_cwd="session"']
     return overrides

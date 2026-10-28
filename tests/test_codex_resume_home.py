@@ -135,7 +135,7 @@ class ResumeHomeTests(unittest.TestCase):
             "session_overrides": {SESSION: {"disabled_hooks": [key]}}
         }))
         _, argv, _ = self.launch(["resume", SESSION], HERDR_ENV="0")
-        self.assertEqual(argv[1:3], ["-c", "hooks.state." + json.dumps(key) + ".enabled=false"])
+        self.assertEqual(argv[1:3], ["-c", "hooks.state={" + json.dumps(key) + "={enabled=false}}"])
         _, other, _ = self.launch(["resume", "00000000-0000-0000-0000-000000000000"], HERDR_ENV="0")
         self.assertEqual(other[1:], ["resume", "00000000-0000-0000-0000-000000000000"])
 
