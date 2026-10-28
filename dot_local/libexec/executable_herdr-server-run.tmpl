@@ -9,6 +9,11 @@ export HERDR_MANAGED_AGENT_UPDATES=1 DISABLE_AUTOUPDATER=1
 {{ end -}}
 "$HOME/.local/bin/herdr-ensure-arc-mounts"
 {{ if eq .chezmoi.os "darwin" -}}
+{{ if get . "herdrWebUI" -}}
+# Also covers a launchd retry after the interactive launcher has exited: this
+# helper never starts Herdr and loads Ovis only once the server socket responds.
+"$HOME/.local/bin/herdr-service-run" --web-only "$$" &
+{{ end -}}
 exec /opt/homebrew/bin/herdr server
 {{ else if .offline -}}
 exec "$HOME/.local/bin/herdr" server

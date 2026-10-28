@@ -35,6 +35,7 @@ class StartupTests(unittest.TestCase):
         self.home = Path(self.tmp.name)
         (self.home / ".local/bin").mkdir(parents=True)
         self.env = dict(os.environ, HOME=str(self.home), XPC_SERVICE_NAME="")
+        self.script(self.home / ".local/bin/herdr-service-run", "exit 0\n")
 
     def script(self, path, text):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,6 +90,15 @@ esac
         launcher = self.script(self.home / "launcher", body)
         subprocess.run([str(launcher)], env=dict(self.env, XPC_SERVICE_NAME="local.herdr"), check=True, timeout=5)
         self.assertEqual((self.home / "events").read_text(), "private\n")
+
+    def test_readiness_helper_never_starts_an_absent_server(self):
+        server = self.script(self.home / "server", "exit 1\n")
+        self.script(self.home / "launchctl", 'echo unexpected > "$HOME/events"; exit 99\n')
+        body = self.launcher.replace("/opt/homebrew/bin/herdr", str(server))
+        body = body.replace('domain="gui/', 'export PATH="$HOME:$PATH"\ndomain="gui/')
+        launcher = self.script(self.home / "launcher", body)
+        subprocess.run([str(launcher), "--web-only", "99999999"], env=self.env, check=True, timeout=5)
+        self.assertFalse((self.home / "events").exists())
 
 
 class UpdateTests(unittest.TestCase):

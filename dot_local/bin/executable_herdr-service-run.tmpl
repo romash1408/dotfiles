@@ -7,12 +7,19 @@ export PATH="{{ .chezmoi.homeDir }}/.local/bin:/opt/homebrew/bin:/home/linuxbrew
 if [ "${XPC_SERVICE_NAME:-}" = local.herdr ] && [ "${PPID:-0}" = 1 ]; then
   exec "$HOME/.local/libexec/herdr-server-run"
 fi
+web_only=false
+case "${1:-}" in
+  '') ;;
+  --web-only) web_only=true; parent="${2:?missing server pid}" ;;
+  --help|-h) echo 'Usage: herdr-service-run'; exit 0 ;;
+  *) echo 'Usage: herdr-service-run' >&2; exit 2 ;;
+esac
 # The plists live outside LaunchAgents: nothing starts at login. bootstrap keeps
 # supervision independent of this terminal, once the user explicitly asks.
 domain="gui/$(id -u)"
 root="$HOME/.config/herdr/launchd"
 mkdir -p "$HOME/Library/Logs"
-if ! /opt/homebrew/bin/herdr status server 2>/dev/null | grep -q 'status: running'; then
+if [ "$web_only" = false ] && ! /opt/homebrew/bin/herdr status server 2>/dev/null | grep -q 'status: running'; then
   if launchctl print "$domain/local.herdr" >/dev/null 2>&1; then
     launchctl kickstart "$domain/local.herdr"
   else
@@ -20,8 +27,12 @@ if ! /opt/homebrew/bin/herdr status server 2>/dev/null | grep -q 'status: runnin
   fi
   echo "Starting Herdr: agent updates, Arc mounts, then session restore."
   echo "Progress: $HOME/Library/Logs/herdr.log"
-  attempt=0
-  until /opt/homebrew/bin/herdr status server 2>/dev/null | grep -q 'status: running'; do
+fi
+attempt=0
+until /opt/homebrew/bin/herdr status server 2>/dev/null | grep -q 'status: running'; do
+    if [ "$web_only" = true ] && ! kill -0 "$parent" 2>/dev/null; then
+      exit 0
+    fi
     attempt=$((attempt + 1))
     if [ "$attempt" -ge 3 ]; then
       job=$(launchctl print "$domain/local.herdr" 2>/dev/null || true)
@@ -37,8 +48,7 @@ if ! /opt/homebrew/bin/herdr status server 2>/dev/null | grep -q 'status: runnin
       exit 1
     fi
     sleep 1
-  done
-fi
+done
 {{ if get . "herdrWebUI" -}}
 if [ ! -f "$HOME/.local/share/herdr-web-ui/current/dist/index.html" ]; then
   echo "Herdr is running; web UI needs herdr-web-update --apply." >&2
@@ -47,10 +57,18 @@ fi
 if launchctl print "$domain/local.herdr-web-ui" >/dev/null 2>&1; then
   launchctl kickstart "$domain/local.herdr-web-ui"
 else
-  launchctl bootstrap "$domain" "$root/local.herdr-web-ui.plist"
+  # The server's readiness helper and an interactive launcher may arrive together.
+  launchctl bootstrap "$domain" "$root/local.herdr-web-ui.plist" 2>/dev/null || {
+    launchctl print "$domain/local.herdr-web-ui" >/dev/null 2>&1 || {
+      echo "Cannot load local.herdr-web-ui; see $root/local.herdr-web-ui.plist" >&2
+      exit 1
+    }
+  }
 fi
 {{ end -}}
-echo "Herdr is running under launchd; this terminal may be closed."
+if [ "$web_only" = false ]; then
+  echo "Herdr is running under launchd; this terminal may be closed."
+fi
 {{ else -}}
 exec systemctl --user start herdr.service
 {{ end -}}

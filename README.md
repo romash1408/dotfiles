@@ -277,7 +277,9 @@ data. After login run **`herdr-service-run`** explicitly. Nothing starts on logi
 the launchd plists live in `~/.config/herdr/launchd/`, outside `Library/LaunchAgents`.
 The launcher bootstraps `local.herdr`, waits for its socket, then bootstraps
 `local.herdr-web-ui` on `127.0.0.1:7317`. Both remain supervised by launchd after
-the terminal closes. A plain `herdr` refuses client autostart until this explicit
+the terminal closes. The server also schedules a readiness helper so Ovis starts
+after a successful launchd retry even if the interactive launcher has exited.
+A plain `herdr` refuses client autostart until this explicit
 start. `chezmoi apply` removes the old autoload plists without stopping live jobs;
 the changed startup policy takes full effect on the next login. These are
 login-user services: closing a terminal does not stop them, but logging
