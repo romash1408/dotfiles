@@ -1,4 +1,5 @@
 import importlib.machinery
+import json
 from contextlib import closing
 import os
 from pathlib import Path
@@ -17,7 +18,7 @@ SESSION = "01a110de-8466-7170-8975-730eeed6bbca"
 class ResumeHomeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.home = Path(self.tmp.name)
+        self.home = Path(self.tmp.name).resolve()
         self.addCleanup(self.tmp.cleanup)
 
     def store(self, name, version=5, existing_rollout=True):
@@ -114,6 +115,29 @@ class ResumeHomeTests(unittest.TestCase):
         _, _, env = self.launch(["resume", SESSION])
         self.assertNotIn("CODEX_HOME", env)
         self.assertIsNone(ROUTER.resume_home(self.home, "00000000-0000-0000-0000-000000000000"))
+
+    def test_consolidated_legacy_alias_is_not_an_ambiguous_second_home(self):
+        normal = self.store(".codex")
+        (self.home / ".codex-dev-recovery").symlink_to(normal, target_is_directory=True)
+        self.assertEqual(ROUTER.resume_home(self.home, SESSION), normal)
+
+    def test_explicit_legacy_alias_uses_canonical_storage(self):
+        normal = self.store(".codex")
+        old = self.home / ".codex-dev-recovery"
+        old.symlink_to(normal, target_is_directory=True)
+        _, _, env = self.launch(["resume", SESSION], CODEX_HOME=str(old))
+        self.assertEqual(env["CODEX_HOME"], str(normal))
+
+    def test_migration_preserves_an_explicitly_disabled_hook_for_its_session(self):
+        normal = self.store(".codex")
+        key = str(normal / "hooks.json") + ":pre_tool_use:4:0"
+        (normal / ".herdr-canonical-home.json").write_text(json.dumps({
+            "session_overrides": {SESSION: {"disabled_hooks": [key]}}
+        }))
+        _, argv, _ = self.launch(["resume", SESSION], HERDR_ENV="0")
+        self.assertEqual(argv[1:3], ["-c", "hooks.state." + json.dumps(key) + ".enabled=false"])
+        _, other, _ = self.launch(["resume", "00000000-0000-0000-0000-000000000000"], HERDR_ENV="0")
+        self.assertEqual(other[1:], ["resume", "00000000-0000-0000-0000-000000000000"])
 
     def test_multiple_index_versions_in_same_home_are_not_ambiguous(self):
         home = self.store(".codex-dev-recovery", version=5)

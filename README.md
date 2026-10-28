@@ -415,8 +415,8 @@ needed by saved cwd/history paths, retaining their store and object-store. It
 serializes startup mount attempts, skips mounted copies, and refuses missing
 storage or failed mounts. It never creates a checkout, replaces an overlay,
 changes VPN, runs `arc pull`, or falls back to `$HOME`.
-Once VPN is available, run `herdr` to mount the required copies and start/attach
-through the managed service; launchd also retries automatically. `arc root` plus directory
+Once VPN is available, run `herdr-service-run` on the Mac to mount the required
+copies and explicitly start the managed service; launchd retries after that demand. `arc root` plus directory
 reads prove only current local accessibility: cached data can remain available
 without VPN, and this gate cannot guarantee that the network stays up later.
 Existing agents are never killed when a check fails. The interactive herdr guard
@@ -424,11 +424,15 @@ routes startup through the service; service ExecStart must use the real binary,
 never the guard itself. Explicitly invoking an absolute vendor binary bypasses
 that shell guard.
 
-On the work Mac, the same PATH directory also routes Herdr's native
-`codex resume <UUID>` to its existing Codex home. It checks the local conversation
-indexes in `~/.codex`, `~/.codex-dev-recovery`, and `~/.codex-herdr-*`, preserving
-the arguments and any explicit `CODEX_HOME`. Ambiguous/unreadable indexes stop
-with a diagnostic. No sessions are copied and Herdr's native resume stays enabled.
+On the work Mac, Codex sessions use the canonical `~/.codex` store. Consolidation
+preserves the rollout files and SQLite state/history/goals/queue databases; copying
+rollouts alone is insufficient for paginated history. Previous home names remain
+compatibility symlinks, with their original contents archived separately.
+The PATH wrapper resolves aliases to avoid ambiguous UUID lookup and normalizes
+explicit legacy `CODEX_HOME` aliases. Existing unrelated explicit homes remain
+authoritative. `.codex/.herdr-canonical-home.json` records the archive and narrow
+per-session overrides, including previously disabled resource-policy hooks.
+Herdr's own saved UUIDs and native resume remain the restoration mechanism.
 
 Safety regression tests: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v`.
 
@@ -516,8 +520,8 @@ in `latest.json`. The runtime configuration is
 workspace IDs from the live `herdr_ops` name on each invocation.
 
 The wrapper and configuration are scoped to work macOS machines. It uses the
-existing backup validation venv for PyYAML and the recovered
-`~/.codex-dev-recovery` conversations. It delegates all review logic to the
+existing backup validation venv for PyYAML and the canonical
+`~/.codex` conversations. It delegates all review logic to the
 original script. Run `herdr-watchdog refresh` after installing/updating skills
 from junk to refresh its local runtime copy; Arc must be available for refresh.
 Initial setup also needs that refresh before the first run. OpenCode receives
@@ -528,9 +532,9 @@ checkpoint/native hook recovery protocol as Linux. The work Mac coordinator is e
 a successful DIRECT-344507 pilot on 2026-10-13 (11.5% → 6.0%). Master flags
 are an opt-in, and each session still needs its own native trust/readiness. Each session needs a callback bound to its current PID, microsecond
 creation epoch, UUID and cwd. Missing evidence leaves that session ineligible.
-`codex_homes` includes normal/recovery homes; `codex_home_patterns` discovers
-isolated `~/.codex-herdr-*` homes. Direct OpenCode script calls load this config,
-so they use the same homes as the wrapper. Run the hook installer with the venv
-Python and explicit CODEX_HOME for every home currently in use; it preserves
+`codex_homes` contains only `~/.codex`; `codex_home_patterns` is empty after
+consolidation. Direct OpenCode script calls load this config,
+so they use the same store as the wrapper. Run the hook installer with the venv
+Python and the canonical CODEX_HOME; it preserves
 existing policy hooks. See the installed herdr-watchdog skill's compaction
 reference for install/rollback and exact gates. No timer is configured.
