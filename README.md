@@ -348,6 +348,14 @@ creating a separate `CODEX_HOME`. It takes effect on the next launch/resume;
 existing daemons and agents are not stopped. Non-interactive helper commands and
 explicit remote-server connections retain their existing behavior.
 
+OpenCode chat in Ovis requires `herdr integration install opencode`, followed by
+restarting OpenCode with the same session ID so its TUI plugin reports that ID.
+This also works through `ya code oc --session <id>`. YaCode stores conversations
+in `~/.local/share/ya-code/opencode/opencode.db`; on macOS the web launcher selects
+that database when it exists and `OPENCODE_DB` is unset. An explicit override is
+preserved. Without the integration or the correct database, Ovis shows terminal
+output instead of the conversation.
+
 On hp, infra's `playbooks/herdr-web.yml` exposes loopback `:7317` only on hp's WG
 address. Caddy protects `herdr-hp.dybin.in` with the existing web password. The main
 `herdr.dybin.in` stays on the Mac; a failed HTML navigation redirects to hp, while

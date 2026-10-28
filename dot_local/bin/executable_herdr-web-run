@@ -10,6 +10,11 @@ root="$HOME/.local/share/herdr-web-ui"
 export PATH="$HOME/.local/lib/herdr-guard:$root/runtime/node-bin:$root/runtime/node_modules/.bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export HOST=127.0.0.1 PORT=7317 HERDR_WEB_AUTO_UPDATE=0
 export HERDR_WEB_STATE_DIR="$HOME/.config/herdr-web-ui"
+# YaCode keeps OpenCode sessions outside the upstream store on the work Mac.
+# Respect an explicit database choice; Linux hosts keep their normal default.
+if [ "$(uname -s)" = Darwin ] && [ -z "${OPENCODE_DB:-}" ] && [ -f "$HOME/.local/share/ya-code/opencode/opencode.db" ]; then
+  export OPENCODE_DB="$HOME/.local/share/ya-code/opencode/opencode.db"
+fi
 if [ -f "$root/remote-bundles/manifest.json" ]; then
   export HERDR_WEB_BUNDLE_MANIFEST="$root/remote-bundles/manifest.json"
 fi
