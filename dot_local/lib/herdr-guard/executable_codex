@@ -9,6 +9,23 @@ import sys
 
 REAL = "/opt/homebrew/bin/codex" if sys.platform == "darwin" else str(Path.home() / ".local/bin/codex")
 UUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\Z")
+HELPER_COMMANDS = {
+    "agents", "exec", "e", "review", "login", "logout", "mcp", "plugin",
+    "app-server", "remote-control", "app", "completion", "update", "doctor",
+    "sandbox", "debug", "apply", "archive", "delete", "migrate-rollouts",
+    "migrate-nfs-db", "unarchive", "cloud", "exec-server", "features", "queue",
+    "help", "--help", "-h", "--version", "-V",
+}
+
+
+def needs_private_server(args, env):
+    # A home-wide daemon can have been started outside Herdr or in another pane.
+    # Its environment is not this TUI's environment, including in SessionStart
+    # hooks. Foreground mode keeps hooks and tools attached to their actual pane.
+    return (env.get("HERDR_ENV") == "1"
+            and (not args or args[0] not in HELPER_COMMANDS)
+            and "--no-daemon" not in args
+            and not any(a == "--remote" or a.startswith("--remote=") for a in args))
 
 
 def resume_home(home, session_id):
@@ -43,7 +60,9 @@ def main(argv=None):
     # Updates happen once before the managed server restores any panes, including
     # those with isolated CODEX_HOME. Do not show an update modal in every resume.
     managed = env.get("HERDR_MANAGED_AGENT_UPDATES") == "1" and env.get("HERDR_ENV") == "1"
-    overrides = ["-c", "check_for_update_on_startup=false"] if managed else []
+    overrides = ["--no-daemon"] if needs_private_server(args, env) else []
+    if managed:
+        overrides += ["-c", "check_for_update_on_startup=false"]
     os.execve(REAL, [REAL, *overrides, *args], env)
 
 

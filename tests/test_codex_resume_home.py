@@ -46,7 +46,7 @@ class ResumeHomeTests(unittest.TestCase):
         args = ["resume", SESSION, "--model", "gpt-5.6-sol", "-c", "features.fast_mode=false"]
         real, argv, env = self.launch(args)
         self.assertEqual(real, "/opt/homebrew/bin/codex")
-        self.assertEqual(argv, [real, *args])
+        self.assertEqual(argv, [real, "--no-daemon", *args])
         self.assertEqual(env["CODEX_HOME"], str(home))
 
     def test_isolated_resume_uses_uuid_rather_than_current_working_directory(self):
@@ -64,8 +64,8 @@ class ResumeHomeTests(unittest.TestCase):
     def test_managed_updates_disable_modal_for_explicit_isolated_home(self):
         _, argv, env = self.launch(["resume", SESSION], CODEX_HOME="/chosen/home",
                                    HERDR_MANAGED_AGENT_UPDATES="1")
-        self.assertEqual(argv[1:3], ["-c", "check_for_update_on_startup=false"])
-        self.assertEqual(argv[3:], ["resume", SESSION])
+        self.assertEqual(argv[1:4], ["--no-daemon", "-c", "check_for_update_on_startup=false"])
+        self.assertEqual(argv[4:], ["resume", SESSION])
         self.assertEqual(env["CODEX_HOME"], "/chosen/home")
 
     def test_outside_herdr_fresh_launch_and_picker_are_unchanged(self):
@@ -76,6 +76,22 @@ class ResumeHomeTests(unittest.TestCase):
             with self.subTest(args=args):
                 _, argv, env = self.launch(args, **extra)
                 self.assertNotIn("CODEX_HOME", env)
+                prefix = ["--no-daemon"] if ROUTER.needs_private_server(args, {"HERDR_ENV": extra.get("HERDR_ENV", "1")}) else []
+                self.assertEqual(argv[1:], [*prefix, *args])
+
+    def test_pane_environment_is_preserved_and_daemon_is_bypassed(self):
+        context = {"HERDR_PANE_ID": "w2:p99", "HERDR_WORKSPACE_ID": "w2",
+                   "HERDR_TAB_ID": "w2:t9", "HERDR_SOCKET_PATH": "/tmp/herdr-test.sock"}
+        _, argv, env = self.launch(["--model", "test-model"], **context)
+        self.assertEqual(argv[1:], ["--no-daemon", "--model", "test-model"])
+        for key, value in context.items():
+            self.assertEqual(env[key], value)
+
+    def test_helpers_remote_connections_and_explicit_foreground_are_unchanged(self):
+        for args in (["app-server", "daemon", "version"], ["agents"], ["exec", "echo test"],
+                     ["--remote", "unix:///tmp/test.sock"], ["--no-daemon", "resume", SESSION]):
+            with self.subTest(args=args):
+                _, argv, _ = self.launch(args)
                 self.assertEqual(argv[1:], args)
 
     def test_ambiguous_copies_stop_without_launching_codex(self):

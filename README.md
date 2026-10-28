@@ -340,6 +340,14 @@ update modal (`check_for_update_on_startup=false`), including isolated homes.
 The update runs once per server start, never for every pane. Already-running
 servers and agents are not restarted by installing this configuration.
 
+Interactive Codex launched inside Herdr also receives `--no-daemon` from the
+managed wrapper. A shared home-wide Codex daemon retains its own startup
+environment, which can omit Herdr variables or belong to a different pane.
+Foreground mode preserves each pane's actual context for hooks and tools without
+creating a separate `CODEX_HOME`. It takes effect on the next launch/resume;
+existing daemons and agents are not stopped. Non-interactive helper commands and
+explicit remote-server connections retain their existing behavior.
+
 On hp, infra's `playbooks/herdr-web.yml` exposes loopback `:7317` only on hp's WG
 address. Caddy protects `herdr-hp.dybin.in` with the existing web password. The main
 `herdr.dybin.in` stays on the Mac; a failed HTML navigation redirects to hp, while
