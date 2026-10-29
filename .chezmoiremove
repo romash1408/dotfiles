@@ -3,3 +3,7 @@
 Library/LaunchAgents/local.herdr.plist
 Library/LaunchAgents/local.herdr-web-ui.plist
 {{ end -}}
+{{ if and .work (eq .chezmoi.os "darwin") -}}
+# The offline bootstrap now lives directly in ~/.local/bin.
+chezmoi-upload-offline.sh
+{{ end -}}

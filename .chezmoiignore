@@ -36,7 +36,7 @@ Library/LaunchAgents/local.dev-link.plist
 {{ end }}
 
 {{ if not (and .work (eq .chezmoi.os "darwin")) }}
-chezmoi-upload-offline.sh
+.local/bin/chezmoi-upload-offline.sh
 {{ end }}
 
 {{ if and .work .offline }}

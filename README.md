@@ -117,7 +117,7 @@ scp ~/.config/chezmoi/key.txt new-host:.config/chezmoi/key.txt
 ssh new-host "chmod 600 ~/.config/chezmoi/key.txt"
 ```
 
-`./chezmoi-upload-offline.sh` copies the key to offline machines automatically.
+`chezmoi-upload-offline.sh` copies the key to offline machines automatically.
 
 > **`offline` is auto-detected** from the hostname suffix `.yp-c.yandex.net` —
 > no need to pass it manually. On offline machines `chezmoi init` will fail
@@ -164,7 +164,7 @@ Run this **from your macOS work laptop** — it handles everything over SSH:
 
 ```sh
 # First time — bootstraps chezmoi + clones all repos on the remote:
-./chezmoi-upload-offline.sh <ssh-alias> work=true hasGUI=false
+chezmoi-upload-offline.sh <ssh-alias> work=true hasGUI=false
 
 # Then on the remote machine, set zsh as default:
 ssh <ssh-alias> "sudo apt install zsh -y && chsh -s \$(which zsh)"
@@ -174,6 +174,10 @@ ssh <ssh-alias> "sudo apt install zsh -y && chsh -s \$(which zsh)"
 chezmoi can't ask in a non-TTY context. `offline` is skipped — it is
 auto-detected from the hostname.
 
+The script is managed directly at `~/.local/bin/chezmoi-upload-offline.sh`.
+The former home-directory copy is removed on apply. Applying the script does
+not start a remote bootstrap.
+
 ### How it works
 
 1. Uploads the `chezmoi` binary if missing (`~/.local/bin/chezmoi`)
@@ -181,8 +185,10 @@ auto-detected from the hostname.
    - Initialises a bare repo on the remote (`~/repo-name.git`)
    - Adds a local git remote named `<ssh-alias>`
    - Pushes
-3. Runs `chezmoi init ~/dotfiles.git` + `chezmoi apply` on the remote
-4. `run_after_pull` (triggered by apply) clones `oh-my-zsh` and plugins
+3. Copies the existing age identity to `~/.config/chezmoi/key.txt` if absent,
+   creating its parent directory with mode `0700` and setting the key to `0600`.
+4. Runs `chezmoi init ~/dotfiles.git` + `chezmoi apply` on the remote
+5. `run_after_pull` (triggered by apply) clones `oh-my-zsh` and plugins
    from the bare repos into their working directories (`chmod 700`)
 
 ## Packages
@@ -465,7 +471,7 @@ auto-commits and pushes to GitHub. Offline VMs are updated on the next
 ## Adding a new offline machine
 
 ```sh
-./chezmoi-upload-offline.sh new-host work=true hasGUI=false
+chezmoi-upload-offline.sh new-host work=true hasGUI=false
 ```
 
 A git remote named `new-host` is added to all managed repos. Future
@@ -486,7 +492,7 @@ Add one stanza to `.chezmoi.toml.tmpl`:
   bare = "repo-name"               # bare repo name: ~/repo-name.git on remote
 ```
 
-`./chezmoi-upload-offline.sh` and `run_push` pick it up automatically.
+`chezmoi-upload-offline.sh` and `run_push` pick it up automatically.
 
 ## Machine config (`promptBoolOnce`)
 

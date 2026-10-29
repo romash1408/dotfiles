@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 SOURCE = (Path(__file__).resolve().parents[1] /
-          "executable_chezmoi-upload-offline.sh.tmpl").read_text()
+          "dot_local/bin/executable_chezmoi-upload-offline.sh.tmpl").read_text()
 
 
 class UploadTests(unittest.TestCase):
