@@ -92,3 +92,9 @@ Library
 .config/REAPER/reaper.ini
 .config/REAPER/reaper-kb.ini
 {{ end }}
+
+{{ if not (and .herdrServer (eq .chezmoi.os "linux") (not .offline)) }}
+# Правила для агентов на hp (память общая с сервисами) — только там.
+.claude/CLAUDE.md
+.codex/AGENTS.md
+{{ end }}
