@@ -5,4 +5,4 @@
 [init]
 	defaultBranch = main
 [alias]
-    logf = log --online --graph --all
+    logf = log --oneline --graph --all
