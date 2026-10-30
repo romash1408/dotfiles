@@ -3,4 +3,6 @@
 	login = romash1408
 	name = romash1408
 [init]
-        defaultBranch = main
+	defaultBranch = main
+[alias]
+    logf = log --online --graph --all
