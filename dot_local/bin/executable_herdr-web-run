@@ -9,6 +9,7 @@ fi
 root="$HOME/.local/share/herdr-web-ui"
 export PATH="$HOME/.local/lib/herdr-guard:$root/runtime/node-bin:$root/runtime/node_modules/.bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export HOST=127.0.0.1 PORT=7317 HERDR_WEB_AUTO_UPDATE=0
+export OVIS_TELEMETRY=0
 export HERDR_WEB_STATE_DIR="$HOME/.config/herdr-web-ui"
 # YaCode keeps OpenCode sessions outside the upstream store on the work Mac.
 # Respect an explicit database choice; Linux hosts keep their normal default.

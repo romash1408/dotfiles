@@ -309,6 +309,9 @@ The chezmoi-owned `entry.ts` starts the backend without the built-in app/herdr
 updaters, so browser buttons cannot bypass the explicit update process or restart
 herdr. Bridge auto-updates are disabled. SSH secrets/unknown-host prompts must be
 handled in Settings → Remote PCs; the command does not answer them automatically.
+Ovis telemetry is disabled explicitly by `OVIS_TELEMETRY=0` in the launcher and
+the chezmoi-managed `~/.config/herdr-web-ui/telemetry-off` marker. The custom
+entrypoint also omits the telemetry service, so it sends no anonymous counts.
 The `dev` alias omits agent and reverse port forwarding. The
 dedicated work-Mac service below owns them; `IdentityAgent` still uses Skotty for
 SSH authentication. `dev-mr`, `prod-mr` and `*.yandex.net` retain agent forwarding.

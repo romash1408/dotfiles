@@ -63,6 +63,7 @@ Library/LaunchAgents/local.dev-link.plist
 {{ if or (not (or (eq .chezmoi.os "darwin") (eq .chezmoi.os "linux"))) (not (get . "herdrWebUI")) }}
 .config/herdr-web-ui/install.json
 .config/herdr-web-ui/entry.ts
+.config/herdr-web-ui/telemetry-off
 .local/bin/herdr-web-run
 .local/bin/herdr-web-update
 {{ end }}
