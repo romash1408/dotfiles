@@ -13,10 +13,6 @@ Host *
   SendEnv LANG TZ LC_*
 
 {{ if not (and .work .offline) }}
-Host cloud
-  HostName 158.160.128.176
-  User romash1408
-
 Host cloud01
   HostName 89.126.202.99
   User romash1408
@@ -41,7 +37,7 @@ Host hp
   HostKeyAlias hp
 
 Host backup
-  HostName 81.26.187.70
+  HostName 10.86.0.3
   User romash1408
 {{ end }}
 
