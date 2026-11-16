@@ -67,9 +67,12 @@ echo "$*" >> "$HOME/events"
 case "$1" in
  print) exit 1;;
  bootstrap) case "$3" in *local.herdr.plist) touch "$HOME/ready";; esac;;
+ enable) :;;
+ kickstart) :;;
  *) exit 99;;
 esac
 ''')
+        self.script(self.home / "curl", 'echo \'{"ok":true}\'\n')
         web = self.home / ".local/share/herdr-web-ui/current/dist/index.html"
         web.parent.mkdir(parents=True)
         web.touch()
@@ -82,6 +85,64 @@ esac
         self.assertTrue(loads[0].endswith("/local.herdr.plist"), loads)
         self.assertTrue(loads[1].endswith("/local.herdr-web-ui.plist"), loads)
         self.assertNotIn("-k", " ".join(events))
+
+    def test_explicit_start_reenables_disabled_ui_before_loading_and_waits_for_health(self):
+        server = self.script(self.home / "server", 'echo "status: running"\n')
+        self.script(self.home / "launchctl", '''
+echo "$*" >> "$HOME/events"
+case "$1" in
+ print) exit 1;;
+ enable) touch "$HOME/ui-enabled";;
+ bootstrap) test -f "$HOME/ui-enabled"; touch "$HOME/ui-loaded";;
+ kickstart) test -f "$HOME/ui-loaded"; touch "$HOME/ui-started";;
+ *) exit 99;;
+esac
+''')
+        self.script(self.home / "curl", '''
+test -f "$HOME/ui-started"
+if [ ! -f "$HOME/health-checked" ]; then
+ touch "$HOME/health-checked"
+ exit 7
+fi
+echo '{"ok":true}'
+''')
+        self.script(self.home / "sleep", 'exit 0\n')
+        web = self.home / ".local/share/herdr-web-ui/current/dist/index.html"
+        web.parent.mkdir(parents=True)
+        web.touch()
+        body = self.launcher.replace("/opt/homebrew/bin/herdr", str(server))
+        body = body.replace('domain="gui/', 'export PATH="$HOME:$PATH"\ndomain="gui/')
+        launcher = self.script(self.home / "launcher", body)
+        result = subprocess.run([str(launcher)], env=self.env, check=True, capture_output=True, text=True, timeout=5)
+        events = (self.home / "events").read_text().splitlines()
+        enabled = next(i for i, line in enumerate(events) if line.startswith("enable "))
+        loaded = next(i for i, line in enumerate(events) if line.startswith("bootstrap "))
+        self.assertLess(enabled, loaded)
+        self.assertIn("Ovis is ready", result.stdout)
+        self.assertTrue((self.home / "health-checked").exists())
+        self.assertEqual(sum(line.startswith("bootstrap ") for line in events), 1)
+
+    def test_ui_load_failure_reports_launchctl_error_instead_of_success(self):
+        server = self.script(self.home / "server", 'echo "status: running"\n')
+        self.script(self.home / "launchctl", '''
+case "$1" in
+ enable) exit 0;;
+ print) exit 1;;
+ bootstrap) echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5;;
+ *) exit 99;;
+esac
+''')
+        self.script(self.home / "sleep", 'exit 0\n')
+        web = self.home / ".local/share/herdr-web-ui/current/dist/index.html"
+        web.parent.mkdir(parents=True)
+        web.touch()
+        body = self.launcher.replace("/opt/homebrew/bin/herdr", str(server))
+        body = body.replace('domain="gui/', 'export PATH="$HOME:$PATH"\ndomain="gui/')
+        launcher = self.script(self.home / "launcher", body)
+        result = subprocess.run([str(launcher)], env=self.env, capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Bootstrap failed: 5", result.stderr)
+        self.assertNotIn("Ovis is ready", result.stdout)
 
     def test_live_old_launchd_job_enters_private_runner_without_recursion(self):
         self.script(self.home / ".local/libexec/herdr-server-run", 'echo private > "$HOME/events"\n')

@@ -54,16 +54,41 @@ if [ ! -f "$HOME/.local/share/herdr-web-ui/current/dist/index.html" ]; then
   echo "Herdr is running; web UI needs herdr-web-update --apply." >&2
   exit 1
 fi
-if launchctl print "$domain/local.herdr-web-ui" >/dev/null 2>&1; then
-  launchctl kickstart "$domain/local.herdr-web-ui"
-else
+service="$domain/local.herdr-web-ui"
+# An explicit start includes Ovis, including after a temporary launchctl disable.
+launchctl enable "$service"
+if ! launchctl print "$service" >/dev/null 2>&1; then
   # The server's readiness helper and an interactive launcher may arrive together.
-  launchctl bootstrap "$domain" "$root/local.herdr-web-ui.plist" 2>/dev/null || {
-    launchctl print "$domain/local.herdr-web-ui" >/dev/null 2>&1 || {
-      echo "Cannot load local.herdr-web-ui; see $root/local.herdr-web-ui.plist" >&2
+  load_attempt=0
+  until load_error=$(launchctl bootstrap "$domain" "$root/local.herdr-web-ui.plist" 2>&1); do
+    if launchctl print "$service" >/dev/null 2>&1; then
+      break
+    fi
+    load_attempt=$((load_attempt + 1))
+    if [ "$load_attempt" -ge 3 ]; then
+      echo "Cannot load local.herdr-web-ui: $load_error" >&2
+      echo "Service definition: $root/local.herdr-web-ui.plist" >&2
       exit 1
-    }
-  }
+    fi
+    sleep 1
+  done
+fi
+# Loading registers the job; request an immediate start as well. Without -k,
+# kickstart leaves an already running instance alone, including a concurrent helper.
+launchctl kickstart "$service"
+web_attempt=0
+until curl --noproxy '*' --fail --silent --max-time 2 http://127.0.0.1:7317/api/health |
+      grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'; do
+  web_attempt=$((web_attempt + 1))
+  if [ "$web_attempt" -ge 30 ]; then
+    echo "Ovis did not become ready; see $HOME/Library/Logs/herdr-web-ui.log" >&2
+    tail -n 12 "$HOME/Library/Logs/herdr-web-ui.log" >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+if [ "$web_only" = false ]; then
+  echo "Ovis is ready: http://127.0.0.1:7317"
 fi
 {{ end -}}
 if [ "$web_only" = false ]; then
