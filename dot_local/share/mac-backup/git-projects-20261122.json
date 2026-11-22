@@ -1,0 +1,20 @@
+[
+  {
+    "path": "projects/infra",
+    "origin": "git@gitlab.com:romash1408/infra.git",
+    "head": "91c0c38977da67aeb43a820137394bb367878b97",
+    "branch": "main"
+  },
+  {
+    "path": "projects/worship/monorepo",
+    "origin": "git@gitlab.com:worship-church/monorepo.git",
+    "head": "832d71c9709d21816c3573682300bd757df23ccd",
+    "branch": "cms/6-orchard-personal-data"
+  },
+  {
+    "path": "projects/worship/t8-worshipchik-oidc-plus-graphql",
+    "origin": "git@gitlab.com:worship-church/monorepo.git",
+    "head": "1a59eb992bca24a060eca8aaa2d303074292d38b",
+    "branch": "k8s/priority-classes"
+  }
+]
