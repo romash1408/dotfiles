@@ -475,8 +475,11 @@ their standard directories; Arc has an explicit map to `~/arcadia` and
 `~/arcadia-wt/<name>`, with separate branches and one shared object store.
 
 BorgWarehouse `work-mac` on `backup` owns repository `fb6e66fe`. A dedicated SSH
-key reaches its WG-only Borg listener through `ssh backup`, so Mac WG is not
-required. Passphrase, exported Borg key and client key have age-encrypted source
+key reaches its WG-only Borg listener through `ssh backup`. At home the work Mac
+uses `backup-ssh-proxy`: hp's LAN address → luel → the current Tart guest address.
+Mac WireGuard can stay enabled or disabled. Outside the LAN, SSH keeps the mesh
+route. The helper uses bounded connection waits, checks existing host keys and
+does not forward an SSH agent. Passphrase, exported Borg key and client key have age-encrypted source
 copies. The additional rbw entry is `work-mac-borg`.
 
 `local.mac-backup` runs hourly and on login once explicitly enabled after a
@@ -508,7 +511,7 @@ in `latest.json`. The runtime configuration is
 workspace IDs from the live `herdr_ops` name on each invocation.
 
 The wrapper and configuration are scoped to work macOS machines. It uses the
-existing backup validation venv for PyYAML and the canonical
+shared agent-tools venv for PyYAML and the canonical
 `~/.codex` conversations. It delegates all review logic to the
 original script. Run `herdr-watchdog refresh` after installing/updating skills
 from junk to refresh its local runtime copy; Arc must be available for refresh.

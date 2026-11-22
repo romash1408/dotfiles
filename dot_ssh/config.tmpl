@@ -40,6 +40,13 @@ Host luel
   HostName 192.168.86.195
   User romash1408
 
+{{ if and .work (eq .chezmoi.os "darwin") -}}
+# Prefer the home LAN without changing WireGuard. The helper forces hp's LAN
+# address, then reaches the Tart guest through luel; all host keys stay checked.
+Match originalhost backup exec "test -x '{{ .chezmoi.homeDir }}/.local/bin/backup-ssh-proxy' && '{{ .chezmoi.homeDir }}/.local/bin/backup-ssh-proxy' --available"
+  ProxyCommand {{ .chezmoi.homeDir }}/.local/bin/backup-ssh-proxy
+  HostKeyAlias 10.86.0.3
+{{ end -}}
 Host backup
   HostName 10.86.0.3
   User romash1408

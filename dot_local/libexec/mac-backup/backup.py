@@ -380,10 +380,11 @@ def borg(config, *args, cwd=None, timeout=21600):
                BORG_RSH=shlex.quote(str(HOME / '.local/libexec/mac-backup/ssh')),
                BORG_RELOCATED_REPO_ACCESS_IS_OK='no')
     argv = [config.get('borg', '/opt/homebrew/bin/borg'), *args]
-    if args[0] == 'create':
+    if args[0] in ('create', 'extract'):
         # Keep live progress visible even on a slow initial transfer. This file
         # is private and overwritten per attempt; it is outside backup sources.
-        with (STATE / 'transfer-progress.jsonl').open('w') as progress:
+        log = 'transfer-progress.jsonl' if args[0] == 'create' else 'restore-progress.jsonl'
+        with (STATE / log).open('w') as progress:
             return execute(argv, cwd, timeout, env=env, stderr=progress)
     return execute(argv, cwd, timeout, env=env)
 
@@ -519,7 +520,11 @@ def main():
             p=args.target.expanduser().absolute()
             if p.exists():raise ValueError('Restore target must not exist; never overwrite live sessions')
             p.mkdir(parents=True,mode=0o700)
-            borg(config,'extract','--lock-wait','90','::'+args.archive,cwd=p)
+            # macOS refuses to set protected com.apple.provenance attributes.
+            # Session content, symlinks and POSIX permissions are the restore
+            # contract; preserve xattrs in the archive but omit them on Mac.
+            flags = ['--noxattrs'] if sys.platform == 'darwin' else []
+            borg(config,'extract','--lock-wait','90','--progress','--log-json',*flags,'::'+args.archive,cwd=p)
             verify_export(p)
 
 

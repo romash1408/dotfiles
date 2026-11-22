@@ -1,7 +1,8 @@
 #!/bin/sh
 set -eu
 # Only the outer connection uses the per-repository key. The existing backup
-# alias carries it to the container's WG-only SSH listener, even without Mac WG.
+# alias carries it to the container's WG-only SSH listener. At home the alias
+# uses hp/LAN and luel's Tart NAT, without needing Mac WG.
 exec /usr/bin/ssh -F /dev/null -T \
   -i "$HOME/.ssh/borg_work_mac" -o IdentitiesOnly=yes \
   -o BatchMode=yes -o ForwardAgent=no -o ClearAllForwardings=yes \
