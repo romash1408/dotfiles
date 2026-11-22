@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -12,6 +13,35 @@ spec.loader.exec_module(cutover)
 
 
 class CutoverTest(unittest.TestCase):
+    def test_arc_preflight_failure_never_stops_herdr(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'config.json').write_text('{}')
+            with patch.object(cutover.b, 'CONFIG', root), patch.object(cutover.b, 'STATE', root), \
+                    patch.object(cutover.b, 'borg'), patch.object(cutover, 'call'), \
+                    patch.object(cutover.time, 'sleep'), patch.object(cutover, 'phase'), \
+                    patch.object(cutover, 'preflight_arc', side_effect=RuntimeError('Arc unavailable')), \
+                    patch.object(cutover, 'stop_job') as stop:
+                with self.assertRaisesRegex(RuntimeError, 'Arc unavailable'):
+                    cutover.worker()
+                stop.assert_not_called()
+
+    def test_stopped_resume_preserves_uuid_map_and_rejects_changed_native_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp); config = home / '.config/mac-backup'
+            saved = config / 'cutover/20261122T152509Z'; saved.mkdir(parents=True)
+            native = home / '.config/herdr/session.json'; native.parent.mkdir()
+            native.write_text('{"workspaces": []}')
+            for name in ('session-after-stop.json', 'session-before-stop.json'):
+                (saved / name).write_text(native.read_text())
+            for name in ('agents.json', 'metadata.json'):
+                (saved / name).write_text('{}')
+            with patch.object(cutover.b, 'HOME', home), patch.object(cutover.b, 'CONFIG', config):
+                self.assertEqual(cutover.stopped_herdr_capture(), saved)
+                native.write_text('{"workspaces": ["changed"]}')
+                with self.assertRaisesRegex(RuntimeError, 'changed'):
+                    cutover.stopped_herdr_capture()
+
     def test_busy_backup_is_waited_for_without_interrupting_it(self):
         with patch.object(cutover.fcntl, 'flock', side_effect=[BlockingIOError(35, 'busy'), None]) as flock, \
                 patch.object(cutover.time, 'sleep') as sleep, patch.object(cutover, 'phase') as phase:

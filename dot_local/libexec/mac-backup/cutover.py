@@ -93,6 +93,51 @@ def check_archive(status):
     return status['archive']
 
 
+def herdr_running():
+    result = subprocess.run([HERDR, '--session', 'default', 'status', 'server'],
+                            capture_output=True, timeout=15)
+    if b'status: running' in result.stdout:
+        return True
+    if b'status:' not in result.stdout and (b.HOME / '.config/herdr/herdr.sock').exists():
+        raise RuntimeError('Cannot determine Herdr state; refusing to reuse an older pane map')
+    return False
+
+
+def stopped_herdr_capture():
+    root = b.CONFIG / 'cutover'
+    native = b.HOME / '.config/herdr/session.json'
+    for saved in sorted(root.glob('*'), reverse=True):
+        if saved.is_symlink() or not saved.is_dir():
+            continue
+        after = saved / 'session-after-stop.json'
+        if not after.is_file():
+            continue
+        if not native.is_file() or b.digest(native) != b.digest(after):
+            raise RuntimeError('Stopped Herdr state changed since the saved pane map; inspect before continuing')
+        for name in ('agents.json', 'metadata.json', 'session-before-stop.json', 'session-after-stop.json'):
+            json.loads((saved / name).read_text())
+        return saved
+    raise RuntimeError('No saved state from a stopped cutover; start Herdr before the first cutover')
+
+
+def preflight_arc():
+    arc = shutil.which('arc')
+    if not arc:
+        raise RuntimeError('Arc executable is missing; Herdr was not stopped')
+    mounts = json.loads(b.execute([arc, 'mount', '--list', '--json'], timeout=20).stdout)
+    for mount in mounts:
+        if mount.get('status') == 'unmounted':
+            continue
+        try:
+            info = json.loads(b.arc_read([arc, 'info', '--json'], Path(mount['mount']), 20).stdout)
+            if not info.get('hash') or not info.get('branch'):
+                raise ValueError('Missing branch or HEAD')
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            detail = (getattr(e, 'stderr', None) or b'').decode(errors='replace')[-1200:]
+            raise RuntimeError('Arc mount unavailable; Herdr was not stopped: ' + mount['mount']
+                               + '; ' + str(e) + '; ' + detail) from e
+
+
 def publish(value):
     # No raw transcripts, API snapshots or unencrypted secrets in the handoff.
     script = ('import json,os,sys; from pathlib import Path; os.umask(0o077); '
@@ -118,32 +163,40 @@ def worker():
             phase('finishing-retained-backup')
             b.run_backup(config)
         b.borg(config, 'info', '--lock-wait', '15', timeout=90)
-        phase('saving-herdr')
-        stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
-        saved = b.CONFIG / 'cutover' / stamp
-        saved.mkdir(parents=True, mode=0o700)
-        # Explicit local/default target, never a focused or remote machine.
+        phase('checking-arc-before-stop')
+        preflight_arc()
         cli = [HERDR, '--session', 'default']
-        for name, args in [('live-api', ['api', 'snapshot']),
-                           ('agents', ['agent', 'list'])]:
-            result = json.loads(call(cli + args, timeout=30).stdout)
-            if result.get('error'):
-                raise RuntimeError('Cannot save Herdr ' + name)
-            b.dump(saved / (name + '.json'), result)
-        agents = json.loads((saved / 'agents.json').read_text())['result']['agents']
-        if any(a.get('agent_status') == 'working' for a in agents):
-            raise RuntimeError('An agent is still working; wait until it finishes before starting cutover')
-        native = b.HOME / '.config/herdr/session.json'
-        text = native.read_text()
-        json.loads(text)
-        missing = [a['pane_id'] for a in agents if (a.get('agent_session') or {}).get('value')
-                   and a['agent_session']['value'] not in text]
-        if missing:
-            raise RuntimeError('Live conversations absent from native Herdr state: ' + ', '.join(missing))
-        shutil.copy2(native, saved / 'session-before-stop.json')
-        b.dump(saved / 'metadata.json', {'at': b.now(), 'agents': len(agents),
-               'source_commit': call(['git', '-C', str(b.HOME / '.local/share/chezmoi'),
-                                      'rev-parse', 'HEAD']).stdout.decode().strip()})
+        stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+        if herdr_running():
+            phase('saving-herdr')
+            stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+            saved = b.CONFIG / 'cutover' / stamp
+            saved.mkdir(parents=True, mode=0o700)
+            # Explicit local/default target, never a focused or remote machine.
+            cli = [HERDR, '--session', 'default']
+            for name, args in [('live-api', ['api', 'snapshot']),
+                               ('agents', ['agent', 'list'])]:
+                result = json.loads(call(cli + args, timeout=30).stdout)
+                if result.get('error'):
+                    raise RuntimeError('Cannot save Herdr ' + name)
+                b.dump(saved / (name + '.json'), result)
+            agents = json.loads((saved / 'agents.json').read_text())['result']['agents']
+            if any(a.get('agent_status') == 'working' for a in agents):
+                raise RuntimeError('An agent is still working; wait until it finishes before starting cutover')
+            native = b.HOME / '.config/herdr/session.json'
+            text = native.read_text()
+            json.loads(text)
+            missing = [a['pane_id'] for a in agents if (a.get('agent_session') or {}).get('value')
+                       and a['agent_session']['value'] not in text]
+            if missing:
+                raise RuntimeError('Live conversations absent from native Herdr state: ' + ', '.join(missing))
+            shutil.copy2(native, saved / 'session-before-stop.json')
+            b.dump(saved / 'metadata.json', {'at': b.now(), 'agents': len(agents),
+                   'source_commit': call(['git', '-C', str(b.HOME / '.local/share/chezmoi'),
+                                          'rev-parse', 'HEAD']).stdout.decode().strip()})
+        else:
+            saved = stopped_herdr_capture()
+            phase('resuming-stopped-cutover', saved=str(saved))
         publish({'ready': False, 'started_at': b.now(), 'source': 'old work Mac',
                  'note': 'Cutover in progress; wait for ready=true and a verified pinned archive'})
         phase('stopping-old-services', saved=str(saved))
@@ -164,7 +217,8 @@ def worker():
         if remaining:
             b.dump(b.STATE / 'cutover-remaining-writers.json', remaining)
             raise RuntimeError('Provider processes remain: close them, then retry; see cutover-remaining-writers.json')
-        if native.exists():
+        native = b.HOME / '.config/herdr/session.json'
+        if native.exists() and not (saved / 'session-after-stop.json').exists():
             shutil.copy2(native, saved / 'session-after-stop.json')
         phase('capturing-and-uploading', saved=str(saved))
         # No pending snapshot can be reused: capture happens after all writers stop.
@@ -187,7 +241,7 @@ def worker():
                  'baseline_archive': 'work-mac-20261122T125945Z-complete-pinned',
                  'restore_sha256_sqlite': 'passed', 'counters': manifest['counters'],
                  'arc_count': len(manifest['arc']), 'herdr_state': str(saved.relative_to(b.HOME)),
-                 'source_commit': json.loads((saved / 'metadata.json').read_text())['source_commit'],
+                 'source_commit': call(['git', '-C', str(b.HOME / '.local/share/chezmoi'), 'rev-parse', 'HEAD']).stdout.decode().strip(),
                  'old_mac_schedule': 'disabled', 'old_mac_herdr_ovis': 'stopped'}
         phase('publishing-handoff', archive=archive)
         publish(ready)

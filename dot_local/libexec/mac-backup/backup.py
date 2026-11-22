@@ -228,6 +228,16 @@ class Capture:
             self.copy(p)
 
 
+def arc_read(argv, source, timeout):
+    """Retry a timed-out read once, retaining a finite FUSE/RPC deadline."""
+    try:
+        return execute(argv, source, timeout)
+    except subprocess.TimeoutExpired:
+        print('Arc read timed out; retrying once: ' + str(source) + ' ' + argv[1], flush=True)
+        time.sleep(1)
+        return execute(argv, source, min(timeout * 2, 90))
+
+
 def capture_arc(stage):
     arc = shutil.which('arc')
     if not arc:
@@ -278,14 +288,14 @@ def capture_arc(stage):
                 dump(folder / 'manifest.json', record)
                 exports.append(record)
                 continue
-            info = json.loads(execute([arc, 'info', '--json'], source, 20).stdout)
+            info = json.loads(arc_read([arc, 'info', '--json'], source, 20).stdout)
             if not info.get('hash') or not info.get('branch'):
                 raise RuntimeError('Missing branch or HEAD')
             record['info'] = info
-            status = json.loads(execute([arc, 'status', '--json', '-u', 'all'], source, 30).stdout)
+            status = json.loads(arc_read([arc, 'status', '--json', '-u', 'all'], source, 30).stdout)
             dump(folder / 'status.json', status)
             for file, opts in [('staged.patch', ['--cached']), ('unstaged.patch', [])]:
-                (folder / file).write_bytes(execute([arc, 'diff', '--git', '--binary', '--no-color', *opts], source, 60).stdout)
+                (folder / file).write_bytes(arc_read([arc, 'diff', '--git', '--binary', '--no-color', *opts], source, 60).stdout)
             def paths(v):
                 if isinstance(v, dict):
                     if isinstance(v.get('path'), str): yield v['path']
@@ -305,8 +315,8 @@ def capture_arc(stage):
                 changes.append({'path': p, 'deleted': not a.exists() and not a.is_symlink(),
                                 'sha256': digest(b) if b.is_file() and not b.is_symlink() else None})
             dump(folder / 'files.json', changes)
-            after = json.loads(execute([arc, 'info', '--json'], source, 20).stdout)
-            status_after = json.loads(execute([arc, 'status', '--json', '-u', 'all'], source, 30).stdout)
+            after = json.loads(arc_read([arc, 'info', '--json'], source, 20).stdout)
+            status_after = json.loads(arc_read([arc, 'status', '--json', '-u', 'all'], source, 30).stdout)
             if (info['hash'], info['branch'], status) != (after['hash'], after['branch'], status_after):
                 raise RuntimeError('Worktree changed during capture; retry after its task settles')
             record['complete'] = True

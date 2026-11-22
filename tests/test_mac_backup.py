@@ -15,6 +15,20 @@ spec.loader.exec_module(B)
 
 
 class CaptureTests(unittest.TestCase):
+    def test_arc_read_retries_timeout_once_but_does_not_hide_failure(self):
+        cmd = ['/fake/arc', 'info', '--json']
+        timeout = subprocess.TimeoutExpired(cmd, 20)
+        result = subprocess.CompletedProcess(cmd, 0, b'{}')
+        with mock.patch.object(B, 'execute', side_effect=[timeout, result]) as execute, \
+                mock.patch.object(B.time, 'sleep'):
+            self.assertIs(B.arc_read(cmd, Path('/source'), 20), result)
+            self.assertEqual(execute.call_count, 2)
+        with mock.patch.object(B, 'execute', side_effect=timeout) as execute, \
+                mock.patch.object(B.time, 'sleep'):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                B.arc_read(cmd, Path('/source'), 20)
+            self.assertEqual(execute.call_count, 2)
+
     def test_first_success_is_automatically_pinned(self):
         with tempfile.TemporaryDirectory() as tmp:
             state=Path(tmp);stage=state/'capture-first';(stage/'home').mkdir(parents=True)
