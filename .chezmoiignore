@@ -17,6 +17,7 @@ tests
 .local/share/dev-backup
 Library/LaunchAgents/local.mac-backup.plist
 .local/bin/mac-backup
+.local/bin/mac-backup-cutover
 .local/bin/backup-ssh-proxy
 .local/libexec/mac-backup
 .config/mac-backup
