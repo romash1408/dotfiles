@@ -56,7 +56,9 @@ def execute(argv, cwd=None, timeout=120, **kwargs):
         argv = [sys.executable, '-c',
                 'import os,sys; os.chdir(sys.argv[1]); os.execvp(sys.argv[2],sys.argv[2:])',
                 str(cwd), *map(str, argv)]
-    return subprocess.run(argv, capture_output=True, timeout=timeout, check=True, **kwargs)
+    kwargs.setdefault('stdout', subprocess.PIPE)
+    kwargs.setdefault('stderr', subprocess.PIPE)
+    return subprocess.run(argv, timeout=timeout, check=True, **kwargs)
 
 
 def sqlite_backup(source, target):
@@ -372,12 +374,18 @@ def capture(config):
     return stage, result
 
 
-def borg(config, *args, cwd=None, timeout=7200):
+def borg(config, *args, cwd=None, timeout=21600):
     env = dict(os.environ, BORG_REPO=config['repository'],
                BORG_PASSCOMMAND='cat ' + shlex.quote(str(CONFIG / 'passphrase')),
                BORG_RSH=shlex.quote(str(HOME / '.local/libexec/mac-backup/ssh')),
                BORG_RELOCATED_REPO_ACCESS_IS_OK='no')
-    return execute([config.get('borg', '/opt/homebrew/bin/borg'), *args], cwd, timeout, env=env)
+    argv = [config.get('borg', '/opt/homebrew/bin/borg'), *args]
+    if args[0] == 'create':
+        # Keep live progress visible even on a slow initial transfer. This file
+        # is private and overwritten per attempt; it is outside backup sources.
+        with (STATE / 'transfer-progress.jsonl').open('w') as progress:
+            return execute(argv, cwd, timeout, env=env, stderr=progress)
+    return execute(argv, cwd, timeout, env=env)
 
 
 def run_backup(config, prepared=None):
@@ -414,7 +422,8 @@ def run_backup(config, prepared=None):
                     result = {'archive':{'name':name, 'recovered_after_disconnect':True}}
                 else:
                     print('Uploading ' + name, flush=True)
-                    r = borg(config, 'create', '--lock-wait', '90', '--compression', 'lz4', '--stats', '--json',
+                    r = borg(config, 'create', '--lock-wait', '90', '--compression', config.get('compression','zstd,3'),
+                             '--checkpoint-interval', '300', '--progress', '--log-json', '--stats', '--json',
                              '::' + name, 'home', 'recovery', cwd=stage)
                     result = json.loads(r.stdout)
                 break
