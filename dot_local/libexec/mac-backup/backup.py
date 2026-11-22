@@ -389,6 +389,30 @@ def borg(config, *args, cwd=None, timeout=21600):
     return execute(argv, cwd, timeout, env=env)
 
 
+def pin_archive(config, name):
+    if not name.startswith('work-mac-'):
+        raise ValueError('Only work-mac archives can be pinned')
+    if name.endswith('-pinned'):
+        borg(config, 'info', '--json', '::' + name, timeout=90)
+        return name
+    protected = name + '-pinned'
+    borg(config, 'rename', '--lock-wait', '90', '::' + name, protected)
+    # Update pointers only after Borg has committed the rename. The -pinned
+    # suffix excludes the archive from our *-complete retention selector.
+    for filename in ('last-success.json', 'status.json', 'validation.json'):
+        path = STATE / filename
+        if not path.exists():
+            continue
+        data = json.loads(path.read_text())
+        for key in ('archive', 'verified_archive'):
+            if data.get(key) == name:
+                data[key] = protected
+        if (data.get('previous_success') or {}).get('archive') == name:
+            data['previous_success']['archive'] = protected
+        dump(path, data)
+    return protected
+
+
 def run_backup(config, prepared=None):
     dump(STATE / 'status.json', {'running': True, 'attempt_at': now()})
     stage = None
@@ -442,6 +466,9 @@ def run_backup(config, prepared=None):
         pending.unlink(missing_ok=True)
         if manifest['complete']:
             dump(STATE / 'last-success.json', {'at': now(), 'archive': name})
+            if previous is None:
+                name = pin_archive(config, name)
+                status = json.loads((STATE / 'status.json').read_text())
         print(json.dumps({k:status[k] for k in ['archive','complete','counters','arc_count','errors']},ensure_ascii=False), flush=True)
         if not manifest['complete']:
             raise RuntimeError('Partial snapshot saved; inspect mac-backup status')
@@ -490,7 +517,7 @@ def verify_export(target):
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['run','send','capture','status','list','check','restore','verify','arc-capture'])
+    parser.add_argument('action', choices=['run','send','capture','status','list','check','restore','verify','arc-capture','pin'])
     parser.add_argument('--target',type=Path)
     parser.add_argument('--archive')
     args = parser.parse_args()
@@ -514,6 +541,9 @@ def main():
         elif args.action=='capture':
             stage,m=capture(config);print(json.dumps({'stage':str(stage),'complete':m['complete'],'errors':m['errors']}))
         elif args.action=='list':print(borg(config,'list','--json').stdout.decode())
+        elif args.action=='pin':
+            if not args.archive:parser.error('pin needs --archive NAME')
+            print(pin_archive(config,args.archive))
         elif args.action=='check':borg(config,'check','--verify-data','--lock-wait','90')
         elif args.action=='restore':
             if not args.target or not args.archive:parser.error('restore needs --target NEW and --archive NAME')

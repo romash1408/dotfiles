@@ -1,4 +1,5 @@
 import importlib.util
+import fnmatch
 import json
 from pathlib import Path
 import sqlite3
@@ -14,6 +15,41 @@ spec.loader.exec_module(B)
 
 
 class CaptureTests(unittest.TestCase):
+    def test_first_success_is_automatically_pinned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state=Path(tmp);stage=state/'capture-first';(stage/'home').mkdir(parents=True)
+            B.dump(stage/'recovery/manifest.json',{'files':[],'complete':True,'counters':{},'arc':[],'errors':[],'warnings':[]})
+            def remote(config,*args,**kwargs):
+                value={'archives':[]} if args[0]=='list' else {'archive':{}}
+                return subprocess.CompletedProcess([],0,json.dumps(value).encode())
+            with mock.patch.object(B,'STATE',state), mock.patch.object(B,'borg',side_effect=remote):
+                B.run_backup({},stage)
+            name=json.loads((state/'last-success.json').read_text())['archive']
+            self.assertTrue(name.endswith('-complete-pinned'))
+            self.assertEqual(json.loads((state/'status.json').read_text())['archive'],name)
+            self.assertFalse(stage.exists())
+
+    def test_pinned_migration_archive_survives_retention_and_updates_pointers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp);name = 'work-mac-20261122T125945Z-complete'
+            B.dump(state/'last-success.json', {'archive':name})
+            B.dump(state/'status.json', {'archive':'new-partial','previous_success':{'archive':name}})
+            B.dump(state/'validation.json', {'verified_archive':name,'borg_roundtrip':'passed'})
+            with mock.patch.object(B,'STATE',state), mock.patch.object(B,'borg'):
+                protected=B.pin_archive({},name)
+            self.assertFalse(fnmatch.fnmatchcase(protected,'work-mac-*-complete'))
+            self.assertEqual(json.loads((state/'last-success.json').read_text())['archive'],protected)
+            self.assertEqual(json.loads((state/'validation.json').read_text())['verified_archive'],protected)
+            self.assertEqual(json.loads((state/'status.json').read_text())['previous_success']['archive'],protected)
+
+    def test_failed_pin_keeps_existing_recovery_pointer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state=Path(tmp);name='work-mac-test-complete'
+            B.dump(state/'last-success.json',{'archive':name})
+            with mock.patch.object(B,'STATE',state), mock.patch.object(B,'borg',side_effect=subprocess.CalledProcessError(2,['borg'])):
+                with self.assertRaises(subprocess.CalledProcessError):B.pin_archive({},name)
+            self.assertEqual(json.loads((state/'last-success.json').read_text())['archive'],name)
+
     def test_new_indexed_thread_without_rollout_is_not_a_complete_export(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / 'home'; stage = Path(tmp) / 'stage'

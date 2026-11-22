@@ -486,6 +486,9 @@ copies. The additional rbw entry is `work-mac-borg`.
 verified restore (`~/.config/mac-backup/enabled`). It never starts Ops/watchdog
 timers or restarts agents. `mac-backup status`, `list`, `check`, and
 `restore --archive NAME --target NEW` expose operation and verification.
+The first successful snapshot is pinned outside normal retention; use
+`mac-backup pin --archive NAME` to retain another cutover snapshot. Pinned names
+end in `-pinned`, so pruning ordinary `*-complete` archives cannot remove them.
 The runbook is [`RECOVERY.md`](dot_local/share/mac-backup/RECOVERY.md).
 
 The permanently lost dev is no longer a backup source. Its old timer, collector
