@@ -50,11 +50,22 @@ class CutoverTest(unittest.TestCase):
             self.assertEqual([r['pid'] for r in cutover.writers()], [3, 4, 5])
 
     def test_loaded_service_must_disappear_after_bootout(self):
-        with patch.object(cutover.subprocess, 'run') as run, patch.object(cutover, 'call') as call:
+        with patch.object(cutover.subprocess, 'run') as run, patch.object(cutover, 'call') as call, \
+                patch.object(cutover.time, 'monotonic', side_effect=[0, 100]):
             run.return_value.returncode = 0
             with self.assertRaises(RuntimeError):
                 cutover.stop_job('local.herdr')
             self.assertEqual(call.call_args.args[0][-2:], ['bootout', cutover.DOMAIN + '/local.herdr'])
+
+    def test_asynchronous_bootout_waits_until_job_disappears(self):
+        from types import SimpleNamespace
+        with patch.object(cutover.subprocess, 'run', side_effect=[
+                SimpleNamespace(returncode=n) for n in [0, 0, 0, 113]]) as run, \
+                patch.object(cutover, 'call') as call, patch.object(cutover.time, 'sleep') as sleep:
+            cutover.stop_job('local.herdr')
+            self.assertEqual(run.call_count, 4)
+            self.assertEqual(sleep.call_count, 2)
+            call.assert_called_once()
 
 
 if __name__ == '__main__':

@@ -44,15 +44,20 @@ def writers():
     return rows
 
 
-def stop_job(label):
+def stop_job(label, timeout=75):
     target = DOMAIN + '/' + label
+    deadline = time.monotonic() + timeout
     present = subprocess.run(['/bin/launchctl', 'print', target],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
     if present:
-        call(['/bin/launchctl', 'bootout', target], timeout=75)
-    if subprocess.run(['/bin/launchctl', 'print', target], stdout=subprocess.DEVNULL,
-                      stderr=subprocess.DEVNULL).returncode == 0:
-        raise RuntimeError('LaunchAgent still loaded: ' + label)
+        call(['/bin/launchctl', 'bootout', target], timeout=timeout)
+    # bootout can return while launchd is still draining the job/process group.
+    # KeepAlive services disappear only after that asynchronous shutdown finishes.
+    while subprocess.run(['/bin/launchctl', 'print', target], stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL).returncode == 0:
+        if time.monotonic() >= deadline:
+            raise RuntimeError('LaunchAgent did not finish unloading within ' + str(timeout) + 's: ' + label)
+        time.sleep(.25)
 
 
 def wait_for_backup(lock, timeout=21600):
