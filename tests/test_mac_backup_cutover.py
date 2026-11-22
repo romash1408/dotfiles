@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -13,6 +14,49 @@ spec.loader.exec_module(cutover)
 
 
 class CutoverTest(unittest.TestCase):
+    def test_final_ready_accepts_timestamp_from_published_handoff(self):
+        with tempfile.TemporaryDirectory() as temp:
+            status = Path(temp) / 'cutover.json'
+            with patch.object(cutover, 'STATUS', status):
+                cutover.phase('READY', ready=True, at='verified-at', archive='work-mac-final-complete-pinned')
+            self.assertEqual(json.loads(status.read_text()), {
+                'phase': 'READY', 'ready': True, 'at': 'verified-at', 'archive': 'work-mac-final-complete-pinned'})
+
+    def test_successful_worker_publishes_and_records_ready_after_restore(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp); state = home / 'state'; state.mkdir()
+            config = home / 'config'; config.mkdir(); (config / 'config.json').write_text('{}')
+            saved = config / 'cutover/saved'; saved.mkdir(parents=True)
+            native = home / '.config/herdr/session.json'; native.parent.mkdir(parents=True)
+            native.write_text('{}'); (saved / 'session-after-stop.json').write_text('{}')
+            manifest = {'complete': True, 'files': [], 'counters': {'sqlite': 1}, 'arc': [], 'errors': []}
+            def upload(_):
+                cutover.b.dump(state / 'status.json', {'complete': True, 'archive': 'work-mac-final-complete', 'errors': []})
+            def borg(_, *args, **kwargs):
+                if args[0] == 'extract':
+                    root = kwargs['cwd']; (root / 'home').mkdir()
+                    cutover.b.dump(root / 'recovery/manifest.json', manifest)
+                    cutover.b.dump(root / 'recovery/arc-mounts.json', [])
+            with patch.object(cutover.b, 'HOME', home), patch.object(cutover.b, 'STATE', state), \
+                    patch.object(cutover.b, 'CONFIG', config), patch.object(cutover, 'STATUS', state / 'cutover.json'), \
+                    patch.object(cutover, 'call', return_value=SimpleNamespace(stdout=b'current-commit\n')), \
+                    patch.object(cutover.time, 'sleep'), patch.object(cutover, 'preflight_arc'), \
+                    patch.object(cutover, 'herdr_running', return_value=False), \
+                    patch.object(cutover, 'stopped_herdr_capture', return_value=saved), \
+                    patch.object(cutover, 'stop_job'), patch.object(cutover, 'writers', return_value=[]), \
+                    patch.object(cutover.b, 'run_backup', side_effect=upload), \
+                    patch.object(cutover.b, 'pin_archive', return_value='work-mac-final-complete-pinned'), \
+                    patch.object(cutover.b, 'borg', side_effect=borg), patch.object(cutover, 'publish') as publish:
+                cutover.worker()
+            final = json.loads((state / 'cutover.json').read_text())
+            self.assertEqual(final['phase'], 'READY')
+            self.assertTrue(final['ready'])
+            self.assertEqual(final['source_commit'], 'current-commit')
+            self.assertEqual(publish.call_count, 2)
+            self.assertEqual(publish.call_args.args[0]['archive'], final['archive'])
+            self.assertFalse(list(state.glob('cutover-restore-*')))
+
     def test_arc_preflight_failure_never_stops_herdr(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

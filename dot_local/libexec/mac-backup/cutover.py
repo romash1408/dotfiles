@@ -27,7 +27,7 @@ def call(args, timeout=120, **kwargs):
 
 
 def phase(name, **values):
-    b.dump(STATUS, dict(phase=name, at=b.now(), **values))
+    b.dump(STATUS, {'at': b.now(), **values, 'phase': name})
     print(name, flush=True)
 
 
