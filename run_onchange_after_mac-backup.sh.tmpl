@@ -1,0 +1,19 @@
+{{ if and .work (eq .chezmoi.os "darwin") -}}
+#!/bin/sh
+set -eu
+# Install: {{ include "Library/LaunchAgents/local.mac-backup.plist.tmpl" | sha256sum }}
+# Credentials and the first verified snapshot are explicit prerequisites.
+if [ ! -f "$HOME/.config/mac-backup/enabled" ]; then
+  echo 'mac-backup: run bootstrap and verify a restore before enabling the schedule.'
+  exit 0
+fi
+for path in config.json passphrase known_hosts; do
+  test -f "$HOME/.config/mac-backup/$path"
+done
+test -f "$HOME/.ssh/borg_work_mac"
+domain="gui/$(id -u)"
+launchctl enable "$domain/local.mac-backup"
+if ! launchctl print "$domain/local.mac-backup" >/dev/null 2>&1; then
+  launchctl bootstrap "$domain" "$HOME/Library/LaunchAgents/local.mac-backup.plist"
+fi
+{{ end -}}

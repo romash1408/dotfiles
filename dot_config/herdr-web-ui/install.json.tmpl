@@ -5,7 +5,6 @@
   "remote_bundle": "41",
   "remote_platforms": {{ if eq .chezmoi.os "darwin" }}["linux-x64"]{{ else }}[]{{ end }},
   "machines": [{{ if eq .chezmoi.os "darwin" }}
-    {"name": "dev · работа", "destination": "dev"},
     {"name": "hp · личное", "destination": "hp"}{{ end }}
   ]
 }

@@ -1,0 +1,18 @@
+{{ if and .work (eq .chezmoi.os "darwin") -}}
+#!/bin/sh
+set -eu
+domain="gui/$(id -u)"
+for name in local.dev-backup local.dev-backup-archive local.dev-link; do
+  launchctl disable "$domain/$name"
+  if launchctl print "$domain/$name" >/dev/null 2>&1; then
+    launchctl bootout "$domain/$name"
+  fi
+done
+# Preserve old restore credentials/history, but remove the active source config.
+if [ -d "$HOME/.config/dev-backup" ]; then
+  archive="$HOME/.local/state/retired-dev-backup/$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$archive"
+  chmod 700 "$archive"
+  mv "$HOME/.config/dev-backup" "$archive/config"
+fi
+{{ end -}}

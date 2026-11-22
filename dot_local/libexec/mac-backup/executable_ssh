@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+# Only the outer connection uses the per-repository key. The existing backup
+# alias carries it to the container's WG-only SSH listener, even without Mac WG.
+exec /usr/bin/ssh -F /dev/null -T \
+  -i "$HOME/.ssh/borg_work_mac" -o IdentitiesOnly=yes \
+  -o BatchMode=yes -o ForwardAgent=no -o ClearAllForwardings=yes \
+  -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+  -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile="$HOME/.config/mac-backup/known_hosts" \
+  -o 'ProxyCommand=/usr/bin/ssh -T -o BatchMode=yes -o ForwardAgent=no -o ClearAllForwardings=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 backup -W 10.86.0.3:2222' \
+  "$@"

@@ -9,7 +9,7 @@ import sys
 import time
 
 TASK_HOME = Path.home()
-PYTHON = TASK_HOME / '.local/share/dev-backup/validation-venv/bin/python3'
+PYTHON = TASK_HOME / '.local/share/agent-tools/venv/bin/python3'
 RUNTIME = TASK_HOME / '.local/libexec/herdr-watchdog'
 CONFIG = TASK_HOME / '.config/herdr-watchdog/config.json'
 SOURCE = TASK_HOME / '.agents/skills/herdr-watchdog/scripts'

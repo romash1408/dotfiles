@@ -184,7 +184,7 @@ class ArcGateTests(unittest.TestCase):
             self.assertNotEqual(missing.returncode, 0)
             self.assertIn(b"PyYAML is missing", missing.stderr)
 
-            fallback = home / ".local/share/dev-backup/validation-venv/bin/python3"
+            fallback = home / ".local/share/agent-tools/venv/bin/python3"
             fallback.parent.mkdir(parents=True)
             import shlex
             fallback.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')

@@ -6,4 +6,12 @@ Library/LaunchAgents/local.herdr-web-ui.plist
 {{ if and .work (eq .chezmoi.os "darwin") -}}
 # The offline bootstrap now lives directly in ~/.local/bin.
 chezmoi-upload-offline.sh
+# dev is permanently retired; keep its historical restic data, not a running job.
+Library/LaunchAgents/local.dev-backup.plist
+Library/LaunchAgents/local.dev-backup-archive.plist
+.local/bin/dev-backup
+.local/libexec/dev-backup
+.local/share/dev-backup/RECOVERY.md
+Library/LaunchAgents/local.dev-link.plist
+.local/bin/dev-link
 {{ end -}}

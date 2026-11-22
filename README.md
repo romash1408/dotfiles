@@ -315,9 +315,6 @@ handled in Settings → Remote PCs; the command does not answer them automatical
 Ovis telemetry is disabled explicitly by `OVIS_TELEMETRY=0` in the launcher and
 the chezmoi-managed `~/.config/herdr-web-ui/telemetry-off` marker. The custom
 entrypoint also omits the telemetry service, so it sends no anonymous counts.
-The `dev` alias omits agent and reverse port forwarding. The
-dedicated work-Mac service below owns them; `IdentityAgent` still uses Skotty for
-SSH authentication. `dev-mr`, `prod-mr` and `*.yandex.net` retain agent forwarding.
 Logs are `~/Library/Logs/herdr.log` and `herdr-web-ui.log`. No web password/token is
 configured while the UI is bound to localhost.
 
@@ -373,58 +370,18 @@ address. Caddy protects `herdr-hp.dybin.in` with the existing web password. The 
 `herdr.dybin.in` stays on the Mac; a failed HTML navigation redirects to hp, while
 API requests and WebSockets never fail over across the independent app instances.
 
-### Persistent work-Mac connection to dev
+### Retired dev connections
 
-On a work Mac, `chezmoi apply` installs and starts `local.dev-link`. Its runner is
-`~/.local/bin/dev-link`, and its launchd definition is
-`~/Library/LaunchAgents/local.dev-link.plist`. It forwards Skotty's
-`~/.skotty/sock/default.sock` and these remote loopback ports to the Mac:
-
-- `127.0.0.1:2226` → `127.0.0.1:2226` (`xdg-open-svc`);
-- `127.0.0.1:9222` → `127.0.0.1:9222` (browser debugging, when a browser listens).
-
-The remote command atomically points `~/.ssh/ssh_auth_sock` at this connection's
-agent socket. A real SSH command session is required; a transport-only `ssh -N`
-does not initialize it. Ordinary `ssh dev`, web UI and backups do not replace the
-link. The retained `~/.ssh/rc` fallback also avoids replacing an existing socket
-with one from a short-lived, explicitly forwarded login.
-
-Client liveness probes run every 3 seconds, with 2 missed probes permitted. A
-12-second startup deadline also bounds DNS/authentication stalls. The runner
-retries every 2 seconds and waits for Skotty if it has not started yet. Heartbeats
-to the remote helper run every 2 seconds. After 12 seconds without a heartbeat,
-the helper terminates only its own, non-multiplexed sshd session, releasing its
-remote ports even if the client's VPN vanished without a TCP close. It verifies
-the parent's owner and sshd process name first. No server-wide sshd setting or
-other user's connection is changed. Recovery typically takes seconds after
-network/VPN return; DNS, authentication and routing still need to work.
-
-Logs are `~/Library/Logs/dev-link.log`; repeated identical failures are logged at
-most once a minute. The connection survives terminal closure and reconnects
-after sleep; it is unavailable while the Mac sleeps or is logged out. A changed
-runner/plist restarts only this service on apply, preserving herdr and its agents.
-
-```sh
-launchctl print gui/$(id -u)/local.dev-link
-tail -n 20 ~/Library/Logs/dev-link.log
-launchctl kickstart -k gui/$(id -u)/local.dev-link
-```
-
-Remote bundles are downloaded and checked against the publisher's SHA-256, then
-repacked with one reviewed `service-only-v1` policy: `remote-entry.ts` refuses to
-start a herdr daemon when its socket is unavailable. This prevents bypassing the
-Arc gate. The local bundle manifest has the new checksum, verified again on the
-target. Its location is explicitly supplied to the web server. An upstream change
-to the patched startup branch stops preparation and requires review; it never
-silently returns to upstream autostart. The bundled runtime is kept on each PC;
-the old standalone web-ui plugin is not needed.
+The permanently lost dev is no longer a desired Ovis PC or a persistent SSH
+forwarding target. The dev-link service and its installer are removed. Existing
+work aliases such as dev-mr/prod-mr keep their SSH settings; hp is unchanged.
 
 ### Arc startup gate (all work machines, including Mac)
 
 `herdr-ensure-arc-mounts` checks saved native session cwd values and active legacy
 herdr-history YAML records before the service starts. YAML history requires
 PyYAML. If the default Python lacks it, the gate retries with the existing
-backup/watchdog venv at `~/.local/share/dev-backup/validation-venv`, after checking
+shared agent-tools venv at `~/.local/share/agent-tools/venv`, after checking
 that it can import PyYAML. If neither interpreter provides it, startup fails closed.
 `~/.config/herdr/arc-preflight.json` selects known Arc prefixes and optional
 `required_paths`; registered custom mounts are also discovered with `arc mount
@@ -508,26 +465,31 @@ Add one stanza to `.chezmoi.toml.tmpl`:
 | `hasGUI` | Machine has a graphical interface | manual prompt |
 | `offline` | No internet (`*.yp-c.yandex.net`) | **auto** from hostname |
 
-## dev disaster recovery on the work Mac
+## Work Mac recovery and recurring Borg backup
 
-`dev-backup run` captures authoritative `herdr-history`, archived transcript HTML,
-managed active Codex conversations (including native child threads), scoped SQLite
-state, and each agent's actual Arc branch/HEAD. Dirty diffs and local checkpoints
-are best effort. It never copies Arc objects, skills from junk, or reproducible
-chezmoi configuration. Unmanaged/modified user units and small referenced scripts
-are preserved separately. OpenCode/watchdog and unmanaged ops tabs are excluded.
+`mac-backup` saves all local Codex/Claude CLI and desktop stores, independently
+of Herdr membership, plus Herdr/Ovis metadata, archived HTML, local scripts,
+Direct transport and Arc branch/HEAD/dirty exports. Unmounted Arc copies retain
+their refs and local overlays; no object cache is copied. Sessions restore to
+their standard directories; Arc has an explicit map to `~/arcadia` and
+`~/arcadia-wt/<name>`, with separate branches and one shared object store.
 
-Encrypted restic repository: `~/Backups/dev/repository`. Calendar LaunchAgent
-`local.dev-backup` runs every 30 minutes, on login and after missed wake events.
-The obsolete daily object-store job is removed on apply. No Herdr agents stop.
+BorgWarehouse `work-mac` on `backup` owns repository `fb6e66fe`. A dedicated SSH
+key reaches its WG-only Borg listener through `ssh backup`, so Mac WG is not
+required. Passphrase, exported Borg key and client key have age-encrypted source
+copies. The additional rbw entry is `work-mac-borg`.
 
-Use `dev-backup status`, `dev-backup snapshots`, or
-`dev-backup restore --target ~/dev-recovery` (a new directory; schema-2 only).
-[`RECOVERY.md`](dot_local/share/dev-backup/RECOVERY.md) is an executable runbook
-for a fresh Herdr Ops agent; `prepare-recovery.py` builds its exact recovery plan
-without changing existing Mac state. The key is saved as `dev-backup-restic` in
-rbw and in `~/.config/dev-backup/password` (600) for unattended backups.
-Tests: `python3 -m unittest discover -s tests -p test_dev_backup.py`.
+`local.mac-backup` runs hourly and on login once explicitly enabled after a
+verified restore (`~/.config/mac-backup/enabled`). It never starts Ops/watchdog
+timers or restarts agents. `mac-backup status`, `list`, `check`, and
+`restore --archive NAME --target NEW` expose operation and verification.
+The runbook is [`RECOVERY.md`](dot_local/share/mac-backup/RECOVERY.md).
+
+The permanently lost dev is no longer a backup source. Its old timer, collector
+and restore-specific launcher are removed; historical `~/Backups/dev/repository`
+is retained and old config/credentials are moved to
+`~/.local/state/retired-dev-backup`. Shared PyYAML now lives independently in
+`~/.local/share/agent-tools/venv`. Tests: `test_mac_backup.py`.
 
 ## Manual watchdog on the work Mac
 

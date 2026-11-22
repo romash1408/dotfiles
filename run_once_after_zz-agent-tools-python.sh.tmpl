@@ -1,0 +1,9 @@
+{{ if and .work (eq .chezmoi.os "darwin") -}}
+#!/bin/sh
+set -eu
+venv="$HOME/.local/share/agent-tools/venv"
+if [ ! -x "$venv/bin/python3" ]; then
+  /opt/homebrew/opt/python@3.14/bin/python3.14 -m venv "$venv"
+fi
+"$venv/bin/python3" -m pip --disable-pip-version-check install 'PyYAML==6.0.3'
+{{ end -}}

@@ -15,7 +15,12 @@ tests
 .local/bin/dev-backup
 .local/libexec/dev-backup
 .local/share/dev-backup
-Library/LaunchAgents/local.dev-backup.plist
+Library/LaunchAgents/local.mac-backup.plist
+.local/bin/mac-backup
+.local/libexec/mac-backup
+.config/mac-backup
+.ssh/borg_work_mac
+.local/share/mac-backup
 .local/bin/dev-link
 Library/LaunchAgents/local.dev-link.plist
 .local/bin/herdr-watchdog

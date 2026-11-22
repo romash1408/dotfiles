@@ -114,9 +114,9 @@ def main():
         try:
             import yaml
         except ImportError:
-            # The work Mac keeps PyYAML in the existing backup/watchdog venv.
+            # Shared agent tooling owns PyYAML independently of any backup source.
             # launchd does not inherit the interactive shell's Python environment.
-            yaml_python = home / ".local/share/dev-backup/validation-venv/bin/python3"
+            yaml_python = home / ".local/share/agent-tools/venv/bin/python3"
             if yaml_python.is_file() and Path(sys.prefix) != yaml_python.parent.parent:
                 check = subprocess.run(
                     [str(yaml_python), "-c", "import yaml"],
