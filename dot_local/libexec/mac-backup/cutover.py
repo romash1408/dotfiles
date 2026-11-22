@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -54,6 +55,31 @@ def stop_job(label):
         raise RuntimeError('LaunchAgent still loaded: ' + label)
 
 
+def wait_for_backup(lock, timeout=21600):
+    deadline = time.monotonic() + timeout
+    reported = False
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if not reported:
+                phase('waiting-for-current-backup')
+                reported = True
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Current backup did not finish within 6 hours; it was not interrupted')
+            time.sleep(2)
+
+
+def clear_finished_job():
+    result = subprocess.run(['/bin/launchctl', 'print', DOMAIN + '/' + LABEL],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    if result.returncode == 0:
+        if re.search(r'^\s*pid = \d+', result.stdout, re.MULTILINE):
+            raise RuntimeError('Cutover is already running; inspect status and log')
+        stop_job(LABEL)
+
+
 def check_archive(status):
     if status.get('running') or not status.get('complete') or status.get('errors'):
         raise RuntimeError('Final snapshot is incomplete; READY will not be published')
@@ -77,11 +103,15 @@ def publish(value):
 def worker():
     # Give the invoking terminal time to print its status command before shutdown.
     time.sleep(3)
+    # Disable future hourly starts, but let the current writer finish normally.
+    call(['/bin/launchctl', 'disable', DOMAIN + '/local.mac-backup'])
+    (b.CONFIG / 'enabled').unlink(missing_ok=True)
     with (b.STATE / 'lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if (b.STATE / 'pending.json').exists():
-            raise RuntimeError('A retained export exists; finish mac-backup run before cutover')
+        wait_for_backup(lock)
         config = json.loads((b.CONFIG / 'config.json').read_text())
+        if (b.STATE / 'pending.json').exists():
+            phase('finishing-retained-backup')
+            b.run_backup(config)
         b.borg(config, 'info', '--lock-wait', '15', timeout=90)
         phase('saving-herdr')
         stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
@@ -168,9 +198,7 @@ def main():
     if args.action == 'status':
         print(STATUS.read_text() if STATUS.exists() else 'Not started')
     elif args.action == 'start':
-        if subprocess.run(['/bin/launchctl', 'print', DOMAIN + '/' + LABEL],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-            raise RuntimeError('Cutover job is already loaded; inspect status and log')
+        clear_finished_job()
         LOG.parent.mkdir(parents=True, exist_ok=True)
         with JOB.open('wb') as f:
             plistlib.dump({'Label': LABEL, 'RunAtLoad': True,
