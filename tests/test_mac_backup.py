@@ -14,6 +14,18 @@ spec.loader.exec_module(B)
 
 
 class CaptureTests(unittest.TestCase):
+    def test_new_indexed_thread_without_rollout_is_not_a_complete_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / 'home'; stage = Path(tmp) / 'stage'
+            p = stage / 'home/.codex/state_5.sqlite'; p.parent.mkdir(parents=True)
+            rollout = '.codex/sessions/new.jsonl'
+            with sqlite3.connect(p) as db:
+                db.execute('CREATE TABLE threads(rollout_path TEXT)')
+                db.execute('INSERT INTO threads VALUES (?)', (str(home / rollout),))
+            with mock.patch.object(B, 'HOME', home):
+                self.assertEqual(B.check_codex_index(stage, [])[0]['path'], rollout)
+                self.assertFalse(B.check_codex_index(stage, [{'path':rollout, 'sha256':'test'}]))
+
     def test_offline_run_does_not_capture_or_change_last_success(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp)

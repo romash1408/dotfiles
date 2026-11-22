@@ -316,6 +316,25 @@ def capture_arc(stage):
     return mounts, exports, errors
 
 
+def check_codex_index(stage, files):
+    """Catch a thread created after directory enumeration but before DB backup."""
+    available = {row['path'] for row in files if 'sha256' in row}
+    errors = []
+    for path in (stage / 'home/.codex').glob('state_*.sqlite'):
+        with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='threads'").fetchone():
+                continue
+            for (rollout,) in db.execute('SELECT rollout_path FROM threads'):
+                try:
+                    rel = str(Path(rollout).relative_to(HOME))
+                except (TypeError, ValueError):
+                    errors.append({'path':str(path.name), 'error':'Thread rollout outside the captured HOME'})
+                    continue
+                if rel not in available:
+                    errors.append({'path':rel, 'error':'Indexed Codex transcript missing from export'})
+    return errors
+
+
 def capture(config):
     for rel in config.get('required_sources', ['.codex/sessions', '.claude/projects']):
         if not (HOME / rel).is_dir():
@@ -339,6 +358,7 @@ def capture(config):
         errors.append({'path':'arc','error':'Not every registered worktree was exported'})
     c = Capture(HOME, stage, [x['mount'] for x in mounts])
     c.collect(config['sources'])
+    errors.extend(check_codex_index(stage, c.files))
     # A copy of the collector and configuration makes a snapshot self-describing.
     shutil.copy2(__file__, recovery / 'backup.py')
     dump(recovery / 'config.json', config)
