@@ -191,3 +191,7 @@ if [ "${HERDR_ENV:-}" = 1 ]; then
   export PATH="$HOME/.local/lib/herdr-guard:$PATH"
 fi
 {{ end -}}
+
+# Плашка о состоянии /mnt/e на hp (идёт fsck после жёсткого сброса / диск не смонтирован).
+# Скрипт ставит infra (роль media-mount); на других машинах его нет — молчит.
+[[ -x /usr/local/bin/exfat-guard-banner ]] && /usr/local/bin/exfat-guard-banner || true
